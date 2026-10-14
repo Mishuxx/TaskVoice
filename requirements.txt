@@ -1,0 +1,8 @@
+PyQt6>=6.4.0
+vosk>=0.3.45
+SpeechRecognition>=3.10.0
+plyer>=2.1.0
+APScheduler>=3.10.0
+win10toast>=0.9
+pyaudio>=0.2.13
+PyInstaller>=6.0.0
