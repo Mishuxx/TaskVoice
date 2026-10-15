@@ -37,11 +37,16 @@ from PyQt6.QtWidgets import (
     QSplitter, QFrame, QDialog, QFormLayout, QTextEdit,
     QDateTimeEdit, QSpinBox, QCheckBox, QDialogButtonBox,
     QMessageBox, QSystemTrayIcon, QMenu, QApplication,
-    QSizePolicy, QStackedWidget, QProgressBar,
+    QSizePolicy, QStackedWidget, QProgressBar, QTimeEdit,
 )
-from PyQt6.QtCore import QDateTime
+from PyQt6.QtCore import QDateTime, QTime
 
 from core.tasks import DatabaseManager
+from core.recurrence import (
+    parse_recurrence_days,
+    serialize_recurrence_days,
+    extract_recurrence,
+)
 from core.voice import VoiceManager, extract_task_number
 from core.notifier import NotificationManager
 from ui.task_widget import TaskWidget
@@ -316,6 +321,88 @@ class TaskEditDialog(QDialog):
         form.addRow(self._due_cb)
         form.addRow("Vencimiento:", self._due_edit)
 
+        # Recurrence section
+        self._rec_cb = QCheckBox("🔁 Tarea recurrente")
+        self._rec_cb.setStyleSheet(f"color: {ACCENT_TURQUOISE}; font-size: 13px; font-weight: 600;")
+        form.addRow(self._rec_cb)
+
+        self._rec_container = QWidget()
+        rec_layout = QVBoxLayout(self._rec_container)
+        rec_layout.setContentsMargins(0, 4, 0, 8)
+        rec_layout.setSpacing(8)
+
+        # Recurrence type row
+        rec_type_row = QHBoxLayout()
+        rec_type_lbl = QLabel("Frecuencia:")
+        rec_type_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        rec_type_row.addWidget(rec_type_lbl)
+
+        self._rec_type_combo = QComboBox()
+        self._rec_type_combo.addItem("Todos los días (Diario)", "daily")
+        self._rec_type_combo.addItem("Lunes a Viernes (Días hábiles)", "weekdays")
+        self._rec_type_combo.addItem("Días personalizados", "custom")
+        rec_type_row.addWidget(self._rec_type_combo, stretch=1)
+        rec_layout.addLayout(rec_type_row)
+
+        # Days selector buttons
+        self._rec_days_widget = QWidget()
+        days_row = QHBoxLayout(self._rec_days_widget)
+        days_row.setContentsMargins(0, 0, 0, 0)
+        days_row.setSpacing(4)
+
+        self._day_buttons: List[QPushButton] = []
+        day_letters = ["L", "M", "X", "J", "V", "S", "D"]
+        for idx, letter in enumerate(day_letters):
+            btn = QPushButton(letter)
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.setFixedSize(34, 32)
+            btn.setFont(QFont(FONT_MONO, 11, QFont.Weight.Bold))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: #161B24;
+                    color: {TEXT_MUTED};
+                    border: 1px solid {BORDER_SUBTLE};
+                    border-radius: 6px;
+                }}
+                QPushButton:hover {{
+                    border-color: {ACCENT_TURQUOISE};
+                    color: {TEXT_PRIMARY};
+                }}
+                QPushButton:checked {{
+                    background: {ACCENT_TURQUOISE};
+                    color: #0D1015;
+                    border: 1px solid #5EEAD4;
+                    font-weight: bold;
+                }}
+                """
+            )
+            btn.toggled.connect(self._on_day_button_toggled)
+            days_row.addWidget(btn)
+            self._day_buttons.append(btn)
+
+        rec_layout.addWidget(self._rec_days_widget)
+
+        # Time row
+        rec_time_row = QHBoxLayout()
+        rec_time_lbl = QLabel("Hora:")
+        rec_time_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        rec_time_row.addWidget(rec_time_lbl)
+
+        self._rec_time_edit = QTimeEdit()
+        self._rec_time_edit.setDisplayFormat("HH:mm")
+        self._rec_time_edit.setTime(QTime(9, 0))
+        rec_time_row.addWidget(self._rec_time_edit, stretch=1)
+        rec_layout.addLayout(rec_time_row)
+
+        self._rec_container.setVisible(False)
+        self._rec_cb.toggled.connect(self._rec_container.setVisible)
+        self._rec_type_combo.currentIndexChanged.connect(self._on_rec_type_changed)
+
+        form.addRow(self._rec_container)
+
         # Dynamic category auto-deduction as the user types
         self._cat_user_modified = False
         self._cat_combo.activated.connect(lambda: setattr(self, "_cat_user_modified", True))
@@ -347,6 +434,30 @@ class TaskEditDialog(QDialog):
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
+    def _on_rec_type_changed(self, index: int) -> None:
+        rec_type = self._rec_type_combo.currentData()
+        if rec_type == "daily":
+            for btn in self._day_buttons:
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.blockSignals(False)
+        elif rec_type == "weekdays":
+            for idx, btn in enumerate(self._day_buttons):
+                btn.blockSignals(True)
+                btn.setChecked(idx < 5)
+                btn.blockSignals(False)
+
+    def _on_day_button_toggled(self, checked: bool) -> None:
+        active_days = [i for i, b in enumerate(self._day_buttons) if b.isChecked()]
+        self._rec_type_combo.blockSignals(True)
+        if len(active_days) == 7:
+            self._rec_type_combo.setCurrentIndex(0)
+        elif active_days == [0, 1, 2, 3, 4]:
+            self._rec_type_combo.setCurrentIndex(1)
+        else:
+            self._rec_type_combo.setCurrentIndex(2)
+        self._rec_type_combo.blockSignals(False)
+
     def _load_data(self) -> None:
         if self._task is None:
             return
@@ -372,6 +483,30 @@ class TaskEditDialog(QDialog):
                     dt = QDateTime.fromString(due[:16], "yyyy-MM-ddTHH:mm")
                 if dt.isValid():
                     self._due_edit.setDateTime(dt)
+            except Exception:
+                pass
+
+        # Recurrence
+        is_rec = bool(t.get("is_recurring", 0))
+        if is_rec:
+            self._rec_cb.setChecked(True)
+            self._rec_container.setVisible(True)
+
+            r_type = t.get("recurrence_type") or "daily"
+            idx = self._rec_type_combo.findData(r_type)
+            if idx >= 0:
+                self._rec_type_combo.setCurrentIndex(idx)
+
+            r_days = parse_recurrence_days(t.get("recurrence_days"))
+            for i, btn in enumerate(self._day_buttons):
+                btn.blockSignals(True)
+                btn.setChecked(i in r_days)
+                btn.blockSignals(False)
+
+            r_time = t.get("recurrence_time") or "09:00"
+            try:
+                parts = r_time.split(":")
+                self._rec_time_edit.setTime(QTime(int(parts[0]), int(parts[1])))
             except Exception:
                 pass
 
@@ -426,6 +561,19 @@ class TaskEditDialog(QDialog):
         if self._due_cb.isChecked():
             due_date = self._due_edit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
 
+        is_recurring = self._rec_cb.isChecked()
+        recurrence_days = None
+        recurrence_time = None
+        recurrence_type = None
+
+        if is_recurring:
+            selected_days = [i for i, b in enumerate(self._day_buttons) if b.isChecked()]
+            if not selected_days:
+                selected_days = [0, 1, 2, 3, 4, 5, 6]
+            recurrence_days = selected_days
+            recurrence_time = self._rec_time_edit.time().toString("HH:mm")
+            recurrence_type = self._rec_type_combo.currentData() or "daily"
+
         if self._task_id is None:
             # New task
             task_id = self._db.add_task(
@@ -434,6 +582,10 @@ class TaskEditDialog(QDialog):
                 category_id=cat_id,
                 due_date=due_date,
                 priority=priority,
+                is_recurring=is_recurring,
+                recurrence_days=recurrence_days,
+                recurrence_time=recurrence_time,
+                recurrence_type=recurrence_type,
             )
         else:
             task_id = self._task_id
@@ -444,6 +596,10 @@ class TaskEditDialog(QDialog):
                 category_id=cat_id,
                 due_date=due_date,
                 priority=priority,
+                is_recurring=is_recurring,
+                recurrence_days=recurrence_days,
+                recurrence_time=recurrence_time,
+                recurrence_type=recurrence_type,
             )
             # Update existing subtask completion
             for i in range(self._subtask_container.count()):
@@ -462,6 +618,7 @@ class TaskEditDialog(QDialog):
             if text:
                 self._db.add_subtask(task_id, text)
 
+        self.saved_task_id = task_id
         self.accept()
 
 
@@ -877,14 +1034,29 @@ class MainWindow(QMainWindow):
         if cmd_type == "add_task":
             if title:
                 priority = params.get("priority", 2)
-                task_id = self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
+                is_recurring = params.get("is_recurring", False)
+                r_days = params.get("recurrence_days")
+                r_time = params.get("recurrence_time")
+                r_type = params.get("recurrence_type")
+                task_id = self._db.add_task(
+                    title=title,
+                    priority=priority,
+                    category_id=self._active_category_id,
+                    is_recurring=is_recurring,
+                    recurrence_days=r_days,
+                    recurrence_time=r_time,
+                    recurrence_type=r_type,
+                )
+                task = self._db.get_task(task_id)
+                if task:
+                    self._notifier.schedule_reminder(task)
                 self._refresh_tasks()
                 self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                task = self._db.get_task(task_id)
                 cat_name = task.get("category_name") if task else None
                 cat_badge = f" [{cat_name}]" if cat_name else ""
-                self._voice_status_lbl.setText(f'🎙 Tarea añadida{cat_badge} [{prio_name}]: "{title}"')
+                rec_badge = f" [🔁 {task.get('recurrence_time', '')}]" if is_recurring else ""
+                self._voice_status_lbl.setText(f'🎙 Tarea añadida{cat_badge}{rec_badge} [{prio_name}]: "{title}"')
         elif cmd_type == "complete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -955,14 +1127,29 @@ class MainWindow(QMainWindow):
             if raw:
                 title = params.get("title", raw)
                 priority = params.get("priority", 2)
-                task_id = self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
+                is_recurring = params.get("is_recurring", False)
+                r_days = params.get("recurrence_days")
+                r_time = params.get("recurrence_time")
+                r_type = params.get("recurrence_type")
+                task_id = self._db.add_task(
+                    title=title,
+                    priority=priority,
+                    category_id=self._active_category_id,
+                    is_recurring=is_recurring,
+                    recurrence_days=r_days,
+                    recurrence_time=r_time,
+                    recurrence_type=r_type,
+                )
+                task = self._db.get_task(task_id)
+                if task:
+                    self._notifier.schedule_reminder(task)
                 self._refresh_tasks()
                 self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                task = self._db.get_task(task_id)
                 cat_name = task.get("category_name") if task else None
                 cat_badge = f" [{cat_name}]" if cat_name else ""
-                self._voice_status_lbl.setText(f'🎙 Tarea creada{cat_badge} [{prio_name}]: "{title}"')
+                rec_badge = f" [🔁 {task.get('recurrence_time', '')}]" if is_recurring else ""
+                self._voice_status_lbl.setText(f'🎙 Tarea creada{cat_badge}{rec_badge} [{prio_name}]: "{title}"')
 
     # ------------------------------------------------------------------
     # View Switching (Tasks vs Dashboard vs Missions)
@@ -1059,14 +1246,26 @@ class MainWindow(QMainWindow):
     def _on_quick_add_task(self, text: str) -> None:
         if not text:
             return
-        task_id = self._db.add_task(title=text, priority=2, category_id=self._active_category_id)
+        final_title, is_rec, r_days, r_time, r_type = extract_recurrence(text)
+        task_id = self._db.add_task(
+            title=final_title,
+            priority=2,
+            category_id=self._active_category_id,
+            is_recurring=is_rec,
+            recurrence_days=r_days,
+            recurrence_time=r_time,
+            recurrence_type=r_type,
+        )
+        task = self._db.get_task(task_id)
+        if task:
+            self._notifier.schedule_reminder(task)
         self._refresh_tasks()
         self._refresh_categories_sidebar()
         self._refresh_gamification_hud()
-        task = self._db.get_task(task_id)
         cat_name = task.get("category_name") if task else None
         cat_badge = f" [{cat_name}]" if cat_name else ""
-        self._voice_status_lbl.setText(f'Tarea agregada{cat_badge}: "{text}"')
+        rec_badge = f" [🔁 {task.get('recurrence_time', '')}]" if is_rec else ""
+        self._voice_status_lbl.setText(f'Tarea agregada{cat_badge}{rec_badge}: "{final_title}"')
 
     def _on_filter_bar_changed(self, filter_mode: str) -> None:
         self._refresh_tasks()
@@ -1196,6 +1395,10 @@ class MainWindow(QMainWindow):
     def _open_new_task(self) -> None:
         dlg = TaskEditDialog(self._db, task_id=None, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            if hasattr(dlg, "saved_task_id") and dlg.saved_task_id:
+                task = self._db.get_task(dlg.saved_task_id)
+                if task:
+                    self._notifier.schedule_reminder(task)
             self._refresh_tasks()
             self._refresh_categories_sidebar()
             self._refresh_gamification_hud()

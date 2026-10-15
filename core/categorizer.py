@@ -106,7 +106,7 @@ TRABAJO_KEYWORDS: Set[str] = {
 HOGAR_KEYWORDS: Set[str] = {
     # Cleaning & Maintenance
     "limpiar", "limpieza", "ordenar", "barrer", "trapear", "aspirar", "fregar",
-    "lavar", "lavadora", "lavarropas", "secar", "secarropas", "ropa", "planchar", "tender",
+    "lavar", "lavadora", "lavarropas", "secar", "secarropas", "lavar ropa", "planchar", "tender", "doblar ropa",
     # Cooking & Kitchen
     "cocina", "cocinar", "platos", "vajilla", "olla", "sarten", "desayuno", "almuerzo",
     "cena", "comida", "hacer comida", "receta", "alimentos",
@@ -161,6 +161,8 @@ PERSONAL_KEYWORDS: Set[str] = {
     "viaje", "viajar", "vacaciones", "hotel", "vuelo", "pasajes", "maleta",
     "valija", "escapada", "paseo", "tramite", "banco", "tarjeta", "dni",
     "pasaporte", "renovar registro", "carnet", "barberia", "peluqueria",
+    "ropa", "ropa nueva", "comprar ropa", "zapatillas", "zapatos", "vestido",
+    "remera", "pantalon", "outfit", "shopping", "fin de semana",
 }
 
 

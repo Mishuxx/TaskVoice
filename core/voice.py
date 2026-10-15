@@ -27,6 +27,8 @@ from typing import Optional, Dict, Any
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMutex, QMutexLocker
 
+from core.recurrence import extract_recurrence
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -156,8 +158,13 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
             if cmd_type == "add_task":
                 title_val = m.group(1).strip() if (m.lastindex and m.lastindex >= 1) else text
                 clean_title, prio = extract_priority(title_val)
-                params["title"] = clean_title
+                final_title, is_rec, r_days, r_time, r_type = extract_recurrence(clean_title)
+                params["title"] = final_title
                 params["priority"] = prio
+                params["is_recurring"] = is_rec
+                params["recurrence_days"] = r_days
+                params["recurrence_time"] = r_time
+                params["recurrence_type"] = r_type
                 return {"type": cmd_type, "params": params}
 
             if m.lastindex and m.lastindex >= 1:
@@ -170,9 +177,21 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
             return {"type": cmd_type, "params": params}
 
     # Si el usuario simplemente dijo algo (ej. "comprar leche prioridad alta"),
-    # se convierte automáticamente en una nueva tarea con su prioridad extraída:
+    # se convierte automáticamente en una nueva tarea con su prioridad y recurrencia extraídas:
     clean_title, prio = extract_priority(text)
-    return {"type": "add_task", "params": {"title": clean_title, "priority": prio, "raw": text}}
+    final_title, is_rec, r_days, r_time, r_type = extract_recurrence(clean_title)
+    return {
+        "type": "add_task",
+        "params": {
+            "title": final_title,
+            "priority": prio,
+            "is_recurring": is_rec,
+            "recurrence_days": r_days,
+            "recurrence_time": r_time,
+            "recurrence_type": r_type,
+            "raw": text,
+        },
+    }
 
 
 

@@ -36,6 +36,7 @@ from ui.tokens import (
     PRIORITY_HIGH_LABEL, PRIORITY_MED_LABEL, PRIORITY_LOW_LABEL,
     PRIORITY_XP, FONT_FAMILY, FONT_MONO,
 )
+from core.recurrence import format_recurrence_badge
 
 
 class HudCheckbox(QWidget):
@@ -253,6 +254,22 @@ class TaskWidget(QFrame):
         self._xp_label.setStyleSheet(f"color: {ACCENT_GOLD}; font-size: 12px;")
         meta_row.addWidget(self._xp_label)
 
+        # Recurrence badge
+        self._recurrence_badge = QLabel("")
+        self._recurrence_badge.setStyleSheet(
+            f"""
+            background-color: rgba(45, 212, 191, 0.12);
+            color: {ACCENT_TURQUOISE};
+            border: 1px solid rgba(45, 212, 191, 0.35);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            """
+        )
+        self._recurrence_badge.setVisible(False)
+        meta_row.addWidget(self._recurrence_badge)
+
         meta_row.addStretch()
         root.addLayout(meta_row)
 
@@ -353,6 +370,19 @@ class TaskWidget(QFrame):
                 self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
         else:
             self._due_label.setText("")
+
+        # Recurrence
+        is_rec = bool(task.get("is_recurring", 0))
+        if is_rec:
+            badge_text = format_recurrence_badge(
+                task.get("recurrence_days"),
+                task.get("recurrence_time"),
+                task.get("recurrence_type"),
+            )
+            self._recurrence_badge.setText(badge_text)
+            self._recurrence_badge.setVisible(True)
+        else:
+            self._recurrence_badge.setVisible(False)
 
         self._rebuild_subtasks()
 

@@ -10,9 +10,13 @@ import os
 import json
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 from core.categorizer import deduce_category_name
+from core.recurrence import (
+    calculate_next_occurrence, parse_recurrence_days,
+    serialize_recurrence_days, format_recurrence_badge,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +79,14 @@ class DatabaseManager:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
 
+    def close(self) -> None:
+        """Close database connection."""
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
     def _cursor(self) -> sqlite3.Cursor:
         return self._conn.cursor()
 
@@ -98,16 +110,20 @@ class DatabaseManager:
         );
 
         CREATE TABLE IF NOT EXISTS tasks (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            title        TEXT NOT NULL,
-            description  TEXT DEFAULT '',
-            category_id  INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-            due_date     TEXT,
-            priority     INTEGER NOT NULL DEFAULT 2 CHECK(priority BETWEEN 1 AND 3),
-            progress     INTEGER NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 100),
-            completed    INTEGER NOT NULL DEFAULT 0,
-            created_at   TEXT NOT NULL,
-            completed_at TEXT
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            title            TEXT NOT NULL,
+            description      TEXT DEFAULT '',
+            category_id      INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+            due_date         TEXT,
+            priority         INTEGER NOT NULL DEFAULT 2 CHECK(priority BETWEEN 1 AND 3),
+            progress         INTEGER NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 100),
+            completed        INTEGER NOT NULL DEFAULT 0,
+            is_recurring     INTEGER NOT NULL DEFAULT 0,
+            recurrence_days  TEXT DEFAULT '',
+            recurrence_time  TEXT DEFAULT '',
+            recurrence_type  TEXT DEFAULT '',
+            created_at       TEXT NOT NULL,
+            completed_at     TEXT
         );
 
         CREATE TABLE IF NOT EXISTS subtasks (
@@ -162,6 +178,20 @@ class DatabaseManager:
         """
         with self._conn:
             self._conn.executescript(sql)
+
+        # Migration: ensure new recurrence columns exist for existing databases
+        migration_cols = [
+            ("is_recurring", "INTEGER NOT NULL DEFAULT 0"),
+            ("recurrence_days", "TEXT DEFAULT ''"),
+            ("recurrence_time", "TEXT DEFAULT ''"),
+            ("recurrence_type", "TEXT DEFAULT ''"),
+        ]
+        with self._conn:
+            for col_name, col_type in migration_cols:
+                try:
+                    self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
 
     # ------------------------------------------------------------------
     # Seed default categories
@@ -329,23 +359,40 @@ class DatabaseManager:
         category_id: Optional[int] = None,
         due_date: Optional[str] = None,
         priority: int = 2,
+        is_recurring: bool = False,
+        recurrence_days: Optional[Union[List[int], str]] = None,
+        recurrence_time: Optional[str] = None,
+        recurrence_type: Optional[str] = None,
     ) -> int:
         """
         Insert a new task and return its id.
         If category_id is None, automatically deduces it from title and description.
+        If is_recurring is True, calculates next recurrence due_date if not specified.
         """
         if category_id is None:
             category_id = self.deduce_or_create_category(f"{title} {description}".strip())
+
+        r_days_str = serialize_recurrence_days(parse_recurrence_days(recurrence_days)) if is_recurring else ""
+        r_time_str = (recurrence_time or "09:00") if is_recurring else ""
+        r_type_str = (recurrence_type or "daily") if is_recurring else ""
+
+        if is_recurring and not due_date:
+            next_dt = calculate_next_occurrence(recurrence_days, r_time_str)
+            due_date = next_dt.isoformat(sep=" ", timespec="seconds")
 
         now = datetime.now().isoformat(sep=" ", timespec="seconds")
         with self._conn:
             cur = self._conn.execute(
                 """
                 INSERT INTO tasks
-                    (title, description, category_id, due_date, priority, progress, completed, created_at)
-                VALUES (?, ?, ?, ?, ?, 0, 0, ?)
+                    (title, description, category_id, due_date, priority, progress, completed,
+                     is_recurring, recurrence_days, recurrence_time, recurrence_type, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
                 """,
-                (title, description, category_id, due_date, priority, now)
+                (
+                    title, description, category_id, due_date, priority,
+                    1 if is_recurring else 0, r_days_str, r_time_str, r_type_str, now
+                )
             )
             return cur.lastrowid
 
@@ -357,36 +404,120 @@ class DatabaseManager:
         category_id: Optional[int] = None,
         due_date: Optional[str] = None,
         priority: Optional[int] = None,
+        is_recurring: Optional[bool] = None,
+        recurrence_days: Optional[Union[List[int], str]] = None,
+        recurrence_time: Optional[str] = None,
+        recurrence_type: Optional[str] = None,
     ) -> None:
         """Partially update a task's fields."""
         task = self.get_task(task_id)
         if task is None:
             return
+
+        new_is_rec = 1 if (is_recurring if is_recurring is not None else task.get("is_recurring", 0)) else 0
+        new_r_days = serialize_recurrence_days(parse_recurrence_days(recurrence_days)) if recurrence_days is not None else task.get("recurrence_days", "")
+        new_r_time = recurrence_time if recurrence_time is not None else task.get("recurrence_time", "")
+        new_r_type = recurrence_type if recurrence_type is not None else task.get("recurrence_type", "")
+
+        new_due = due_date if due_date is not None else task["due_date"]
+        if new_is_rec and not new_due:
+            new_due = calculate_next_occurrence(new_r_days, new_r_time).isoformat(sep=" ", timespec="seconds")
+
         with self._conn:
             self._conn.execute(
                 """
                 UPDATE tasks
-                SET title=?, description=?, category_id=?, due_date=?, priority=?
+                SET title=?, description=?, category_id=?, due_date=?, priority=?,
+                    is_recurring=?, recurrence_days=?, recurrence_time=?, recurrence_type=?
                 WHERE id=?
                 """,
                 (
                     title if title is not None else task["title"],
                     description if description is not None else task["description"],
                     category_id if category_id is not None else task["category_id"],
-                    due_date if due_date is not None else task["due_date"],
+                    new_due,
                     priority if priority is not None else task["priority"],
+                    new_is_rec,
+                    new_r_days,
+                    new_r_time,
+                    new_r_type,
                     task_id,
                 )
             )
 
-    def complete_task(self, task_id: int) -> None:
-        """Mark a task as completed and update its completed_at timestamp."""
+    def complete_task(self, task_id: int) -> Dict[str, Any]:
+        """
+        Mark a task as completed.
+        If it is a recurring task, archives the instance to task_history,
+        calculates the next due date/time according to recurrence rules,
+        and rolls the task over to the next cycle.
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return {"success": False}
+
         now = datetime.now().isoformat(sep=" ", timespec="seconds")
+
+        # Archive into task_history
         with self._conn:
             self._conn.execute(
-                "UPDATE tasks SET completed=1, progress=100, completed_at=? WHERE id=?",
-                (now, task_id)
+                """
+                INSERT INTO task_history
+                    (original_id, title, description, category_id, due_date,
+                     priority, progress, created_at, completed_at, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?, 100, ?, ?, ?)
+                """,
+                (
+                    task["id"], task["title"], task["description"],
+                    task["category_id"], task["due_date"], task["priority"],
+                    task["created_at"], now, now
+                )
             )
+
+        if task.get("is_recurring"):
+            days = parse_recurrence_days(task.get("recurrence_days"))
+            r_time = task.get("recurrence_time") or "09:00"
+            base_dt = datetime.now()
+            if task.get("due_date"):
+                try:
+                    dt = datetime.fromisoformat(task["due_date"])
+                    if dt > base_dt:
+                        base_dt = dt
+                except Exception:
+                    pass
+            next_dt = calculate_next_occurrence(days, r_time, from_dt=base_dt)
+            next_due = next_dt.isoformat(sep=" ", timespec="seconds")
+
+            with self._conn:
+                self._conn.execute(
+                    """
+                    UPDATE tasks
+                    SET completed=0, progress=0, completed_at=NULL, due_date=?
+                    WHERE id=?
+                    """,
+                    (next_due, task_id)
+                )
+                self._conn.execute(
+                    "UPDATE subtasks SET completed=0 WHERE task_id=?",
+                    (task_id,)
+                )
+            return {
+                "success": True,
+                "was_recurring": True,
+                "next_due": next_due,
+                "title": task["title"],
+            }
+        else:
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE tasks SET completed=1, progress=100, completed_at=? WHERE id=?",
+                    (now, task_id)
+                )
+            return {
+                "success": True,
+                "was_recurring": False,
+                "title": task["title"],
+            }
 
     def uncomplete_task(self, task_id: int) -> None:
         """Mark a task as not completed."""
