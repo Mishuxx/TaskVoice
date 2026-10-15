@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QFrame, QDialog, QFormLayout, QTextEdit,
     QDateTimeEdit, QSpinBox, QCheckBox, QDialogButtonBox,
     QMessageBox, QSystemTrayIcon, QMenu, QApplication,
-    QSizePolicy, QStackedWidget,
+    QSizePolicy, QStackedWidget, QProgressBar,
 )
 from PyQt6.QtCore import QDateTime
 
