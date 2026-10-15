@@ -19,9 +19,11 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QFrame, QScrollArea, QSizePolicy, QProgressBar,
+    QMessageBox,
 )
 
 from core.tasks import DatabaseManager
+
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +387,7 @@ class DashboardWidget(QWidget):
     """
 
     refresh_requested = pyqtSignal()
+    data_reset        = pyqtSignal()
 
     def __init__(self, db: DatabaseManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -411,10 +414,10 @@ class DashboardWidget(QWidget):
         main_layout.setSpacing(16)
 
         # --------------------------------------------------------------
-        # 1. Header Bar: Title, subtitle and Refresh button
+        # 1. Header Bar: Title, subtitle, Refresh and Reset buttons
         # --------------------------------------------------------------
         header_row = QHBoxLayout()
-        header_row.setSpacing(12)
+        header_row.setSpacing(10)
 
         titles_box = QVBoxLayout()
         titles_box.setSpacing(2)
@@ -434,7 +437,7 @@ class DashboardWidget(QWidget):
                 color: {COLOR_TEXT_MAIN};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
-                padding: 6px 16px;
+                padding: 6px 14px;
                 font-weight: 600;
                 font-size: 12px;
             }}
@@ -445,7 +448,29 @@ class DashboardWidget(QWidget):
         """)
         self._refresh_btn.clicked.connect(self.refresh_data)
         header_row.addWidget(self._refresh_btn)
+
+        self._reset_btn = QPushButton("🗑 Reiniciar")
+        self._reset_btn.setToolTip("Reiniciar métricas o restablecer tareas")
+        self._reset_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_BG_CARD};
+                color: #f38ba8;
+                border: 1px solid #f38ba8;
+                border-radius: 8px;
+                padding: 6px 14px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: #f38ba8;
+                color: #11111b;
+            }}
+        """)
+        self._reset_btn.clicked.connect(self._on_reset_clicked)
+        header_row.addWidget(self._reset_btn)
+
         main_layout.addLayout(header_row)
+
 
         # --------------------------------------------------------------
         # 2. KPI Cards Grid (4 metrics)
@@ -709,3 +734,32 @@ class DashboardWidget(QWidget):
 
         self._prio_low_lbl.setText(f"Baja ({low} tareas)")
         self._prio_low_bar.setValue(int(low / p_tot * 100))
+
+    def _on_reset_clicked(self) -> None:
+        """Handle reset confirmation dialog with options to clear completed or reset all."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Reiniciar Dashboard")
+        msg.setText("¿Qué acción de reinicio deseas realizar?")
+        msg.setInformativeText(
+            "Selecciona una opción:\n\n"
+            "• 'Limpiar completadas': Archiva todas las tareas terminadas y reinicia las métricas activas.\n"
+            "• 'Reiniciar todo': Borra todas las tareas y subtareas para empezar totalmente desde cero."
+        )
+        msg.setIcon(QMessageBox.Icon.Question)
+
+        btn_clean = msg.addButton("Limpiar completadas", QMessageBox.ButtonRole.ActionRole)
+        btn_reset_all = msg.addButton("Reiniciar todo (Cero)", QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = msg.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+
+        msg.exec()
+        clicked = msg.clickedButton()
+
+        if clicked == btn_clean:
+            count = self._db.reset_completed_tasks()
+            self.refresh_data()
+            self.data_reset.emit()
+        elif clicked == btn_reset_all:
+            self._db.reset_all_data()
+            self.refresh_data()
+            self.data_reset.emit()
+

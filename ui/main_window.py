@@ -556,9 +556,11 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self._stack.addWidget(splitter)
         self._dashboard_view = DashboardWidget(self._db, parent=self)
+        self._dashboard_view.data_reset.connect(self._on_dashboard_reset)
         self._stack.addWidget(self._dashboard_view)
 
         root_layout.addWidget(self._stack)
+
 
 
         # Status bar
@@ -880,6 +882,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_dashboard_view"):
             self._dashboard_view.refresh_data()
         self.statusBar().showMessage("📊 Mostrando Dashboard estadístico", 3000)
+
+    def _on_dashboard_reset(self) -> None:
+        self._refresh_tasks()
+        self.statusBar().showMessage("🔄 Tareas y estadísticas reiniciadas", 4000)
+
 
 
 

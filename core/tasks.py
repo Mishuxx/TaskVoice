@@ -441,6 +441,44 @@ class DatabaseManager:
         )
         return [dict(r) for r in cur.fetchall()]
 
+    def reset_completed_tasks(self) -> int:
+        """
+        Archive and remove all completed tasks, resetting active metrics.
+        Returns count of archived tasks.
+        """
+        with self._conn:
+            cur = self._cursor()
+            cur.execute("SELECT * FROM tasks WHERE completed=1")
+            done_tasks = cur.fetchall()
+            now = datetime.now().isoformat(sep=" ", timespec="seconds")
+            for t in done_tasks:
+                self._conn.execute(
+                    """
+                    INSERT INTO task_history
+                        (original_id, title, description, category_id, due_date,
+                         priority, progress, created_at, completed_at, archived_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        t["id"], t["title"], t["description"], t["category_id"],
+                        t["due_date"], t["priority"], t["progress"],
+                        t["created_at"], t["completed_at"], now,
+                    ),
+                )
+            self._conn.execute("DELETE FROM tasks WHERE completed=1")
+            return len(done_tasks)
+
+    def reset_all_data(self) -> None:
+        """
+        Completely reset all tasks, subtasks and history to start fresh from zero.
+        Categories are preserved.
+        """
+        with self._conn:
+            self._conn.execute("DELETE FROM subtasks")
+            self._conn.execute("DELETE FROM tasks")
+            self._conn.execute("DELETE FROM task_history")
+
+
     # ==================================================================
     # STATS
     # ==================================================================
