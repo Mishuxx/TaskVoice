@@ -30,6 +30,7 @@ class TopBarWidget(QWidget):
     """
     search_changed = pyqtSignal(str)
     theme_toggled = pyqtSignal()
+    settings_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -113,6 +114,21 @@ class TopBarWidget(QWidget):
         )
         self._theme_btn.clicked.connect(self.theme_toggled.emit)
         layout.addWidget(self._theme_btn)
+
+        # ------------------------------------------------------------------
+        # Settings Button (Gear)
+        # ------------------------------------------------------------------
+        self._settings_btn = QPushButton("⚙")
+        self._settings_btn.setFixedSize(40, 40)
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("Ajustes y Bots (Telegram / WhatsApp)")
+        self._settings_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; "
+            f"border-radius: 10px; font-size: 17px; color: {TEXT_SECONDARY}; }}"
+            f"QPushButton:hover {{ border-color: {ACCENT_VIOLET}; color: {TEXT_PRIMARY}; }}"
+        )
+        self._settings_btn.clicked.connect(self.settings_clicked.emit)
+        layout.addWidget(self._settings_btn)
 
     def _setup_shortcut(self) -> None:
         shortcut = QShortcut(QKeySequence("Ctrl+K"), self)

@@ -988,6 +988,7 @@ class MainWindow(QMainWindow):
         self._sidebar.category_selected.connect(self._on_sidebar_category_selected)
         self._sidebar.add_category_requested.connect(self._on_add_category_dialog)
         self._sidebar.player_card_clicked.connect(self._show_missions_view)
+        self._sidebar.settings_requested.connect(self._open_settings)
         root_layout.addWidget(self._sidebar)
 
         # 2. Main content area (right side)
@@ -1000,6 +1001,7 @@ class MainWindow(QMainWindow):
         self._topbar = TopBarWidget(self)
         self._topbar.search_changed.connect(self._on_search_changed)
         self._topbar.theme_toggled.connect(self._toggle_theme)
+        self._topbar.settings_clicked.connect(self._open_settings)
         right_layout.addWidget(self._topbar)
 
         # Dotted background with StackedWidget

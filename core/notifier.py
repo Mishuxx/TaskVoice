@@ -118,7 +118,6 @@ class NotificationManager:
 
             self._scheduler = BackgroundScheduler(
                 job_defaults={"misfire_grace_time": 60},
-                timezone="local",
             )
 
             # Check for due-soon tasks every minute

@@ -426,6 +426,7 @@ class SidebarWidget(QWidget):
     category_selected = pyqtSignal(object)  # None for All, or category_id int
     add_category_requested = pyqtSignal()
     player_card_clicked = pyqtSignal()
+    settings_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -470,16 +471,19 @@ class SidebarWidget(QWidget):
         self._nav_tasks = NavButton("Tareas", "📋")
         self._nav_dashboard = NavButton("Dashboard", "📈")
         self._nav_missions = NavButton("Misiones", "⚔️")
+        self._nav_settings = NavButton("Ajustes", "⚙️")
 
         self._nav_tasks.setChecked(True)
 
         self._nav_tasks.clicked.connect(lambda: self._select_nav(0))
         self._nav_dashboard.clicked.connect(lambda: self._select_nav(1))
         self._nav_missions.clicked.connect(lambda: self._select_nav(2))
+        self._nav_settings.clicked.connect(self.settings_requested.emit)
 
         layout.addWidget(self._nav_tasks)
         layout.addWidget(self._nav_dashboard)
         layout.addWidget(self._nav_missions)
+        layout.addWidget(self._nav_settings)
 
         layout.addSpacing(10)
 
