@@ -52,17 +52,32 @@ SPANISH_WORD_TO_NUMBER: Dict[str, int] = {
     "veintiocho": 28, "veintinueve": 29, "treinta": 30, "cuarenta": 40, "cincuenta": 50,
 }
 
+ENGLISH_WORD_TO_NUMBER: Dict[str, int] = {
+    "zero": 0, "one": 1, "first": 1, "1st": 1,
+    "two": 2, "second": 2, "2nd": 2,
+    "three": 3, "third": 3, "3rd": 3,
+    "four": 4, "fourth": 4, "4th": 4,
+    "five": 5, "fifth": 5, "5th": 5,
+    "six": 6, "sixth": 6, "6th": 6,
+    "seven": 7, "seventh": 7, "7th": 7,
+    "eight": 8, "eighth": 8, "8th": 8,
+    "nine": 9, "ninth": 9, "9th": 9,
+    "ten": 10, "tenth": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
 
 def extract_task_number(text: str) -> Optional[int]:
     """
-    Extract a task index number from text (e.g. 'uno', '1', 'número 3', 'la 2').
+    Extract a task index number from text (e.g. 'uno', '1', 'número 3', 'task 2', 'number 1').
     Returns an int >= 1, or None if no number is identified.
     """
     if not text:
         return None
     cleaned = text.strip().lower()
-    cleaned = re.sub(r"^(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?", "", cleaned).strip()
-    cleaned = re.sub(r"\s+(?:como\s+)?(?:hecha|completada|terminada|finalizada)$", "", cleaned).strip()
+    cleaned = re.sub(r"^(?:la\s+|the\s+)?(?:tarea\s+|task\s+)?(?:n[uú]mero\s+|number\s+|#\s*)?", "", cleaned).strip()
+    cleaned = re.sub(r"\s+(?:as\s+)?(?:done|completed|finished|hecha|completada|terminada|finalizada)$", "", cleaned).strip()
     if cleaned.isdigit():
         return int(cleaned)
     m = re.search(r"\b(\d+)\b", cleaned)
@@ -71,30 +86,32 @@ def extract_task_number(text: str) -> Optional[int]:
     for word in cleaned.split():
         if word in SPANISH_WORD_TO_NUMBER:
             return SPANISH_WORD_TO_NUMBER[word]
+        if word in ENGLISH_WORD_TO_NUMBER:
+            return ENGLISH_WORD_TO_NUMBER[word]
     return None
 
 
 def extract_priority(text: str) -> tuple[str, int]:
     """
-    Detect priority from text (alta/3/urgente -> 3, media/2/normal -> 2, baja/1 -> 1)
+    Detect priority from text (alta/3/urgente/high -> 3, media/2/normal/medium -> 2, baja/1/low -> 1)
     and return (cleaned_title, priority_int).
     """
     prio = 2  # default Media
     cleaned = text
 
-    # Alta (3)
+    # Alta / High (3)
     p_alta = re.compile(
-        r'\b(?:con\s+)?(?:prioridad\s+(?:alta|3|m[aá]xima|urgente)|(?:alta|m[aá]xima|urgente)\s+prioridad|urgente)\b',
+        r'\b(?:with\s+)?(?:high|urgent|maximum)\s+priority\b|\b(?:con\s+)?(?:prioridad\s+(?:alta|3|m[aá]xima|urgente)|(?:alta|m[aá]xima|urgente)\s+prioridad|urgente|urgent)\b',
         re.IGNORECASE,
     )
-    # Baja (1)
+    # Baja / Low (1)
     p_baja = re.compile(
-        r'\b(?:con\s+)?(?:prioridad\s+(?:baja|1|menor)|(?:baja|menor)\s+prioridad|no\s+urgente)\b',
+        r'\b(?:with\s+)?(?:low|minor)\s+priority\b|\b(?:con\s+)?(?:prioridad\s+(?:baja|1|menor)|(?:baja|menor)\s+prioridad|no\s+urgente|not\s+urgent)\b',
         re.IGNORECASE,
     )
-    # Media (2)
+    # Media / Medium (2)
     p_media = re.compile(
-        r'\b(?:con\s+)?(?:prioridad\s+(?:media|2|normal)|(?:media|normal)\s+prioridad)\b',
+        r'\b(?:with\s+)?(?:medium|normal)\s+priority\b|\b(?:con\s+)?(?:prioridad\s+(?:media|2|normal)|(?:media|normal)\s+prioridad)\b',
         re.IGNORECASE,
     )
 
@@ -115,26 +132,26 @@ def extract_priority(text: str) -> tuple[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# Command patterns (Spanish)
+# Command patterns (Spanish & English)
 # ---------------------------------------------------------------------------
 COMMAND_PATTERNS = [
     # Mostrar Misiones / RPG / Operaciones
-    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+las?)?|consultar)?\s*(?:las?\s+)?(?:misiones|mision|operaciones|bounties|rpg)[\.\!\?]?$", re.IGNORECASE), "show_missions"),
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+las?)?|consultar|show|view|open|check)?\s*(?:las?\s+|the\s+)?(?:misiones|mision|operaciones|bounties|rpg|missions|quests)[\.\!\?]?$", re.IGNORECASE), "show_missions"),
     # Consultar Nivel / Rango / XP
-    (re.compile(r"^(?:mostrar|ver|consultar|cu[aá]l\s+es)?\s*(?:mi\s+)?(?:nivel|rango|experiencia|xp|perfil)[\.\!\?]?$", re.IGNORECASE), "show_level"),
-    # Mostrar Dashboard / Estadísticas (ej. "mostrar dash", "ver dashboard", "panel", "estadísticas", "progreso")
-    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?|entrar\s+al?)?\s*(?:el\s+)?(?:dashboard|dash|panel|estad[ií]sticas?|m[eé]tricas?|gr[aá]ficos?|progreso)[\.\!\?]?$", re.IGNORECASE), "show_dashboard"),
+    (re.compile(r"^(?:mostrar|ver|consultar|cu[aá]l\s+es|show|view|check|what\s+is)?\s*(?:mi\s+|my\s+)?(?:nivel|rango|experiencia|xp|perfil|level|rank|profile)[\.\!\?]?$", re.IGNORECASE), "show_level"),
+    # Mostrar Dashboard / Estadísticas
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?|entrar\s+al?|show|view|open|go\s+to)?\s*(?:el\s+|the\s+)?(?:dashboard|dash|panel|estad[ií]sticas?|m[eé]tricas?|gr[aá]ficos?|progreso|stats|statistics|metrics|charts)[\.\!\?]?$", re.IGNORECASE), "show_dashboard"),
     # Mostrar Tareas / Lista
-    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+la)?|volver\s+a(?:l|\s+la)?|volver)?\s*(?:las?\s+)?(?:tareas?|lista)[\.\!\?]?$", re.IGNORECASE), "show_tasks"),
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+la)?|volver\s+a(?:l|\s+la)?|volver|show|view|open|go\s+to)?\s*(?:las?\s+|the\s+)?(?:tareas?|lista|tasks?|task\s+list)[\.\!\?]?$", re.IGNORECASE), "show_tasks"),
     # Completar tarea (por número o título)
-    (re.compile(r"^(?:completar|terminar|finalizar|marcar(?:\s+como\s+(?:hecha|completada))?)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "complete_task"),
-    (re.compile(r"^(?:la\s+)?tarea\s+(.+?)\s+(?:como\s+)?(?:completada|hecha|terminada|finalizada)$", re.IGNORECASE), "complete_task"),
+    (re.compile(r"^(?:completar|terminar|finalizar|marcar(?:\s+como\s+(?:hecha|completada))?|complete|finish|done|mark\s+(?:as\s+)?done)\s+(?:la\s+|the\s+)?(?:tarea\s+|task\s+)?(?:n[uú]mero\s+|number\s+|#\s*)?(.+)", re.IGNORECASE), "complete_task"),
+    (re.compile(r"^(?:la\s+|the\s+)?(?:tarea\s+|task\s+)(.+?)\s+(?:como\s+|as\s+)?(?:completada|hecha|terminada|finalizada|done|finished)$", re.IGNORECASE), "complete_task"),
     # Eliminar tarea (por número o título)
-    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "delete_task"),
+    (re.compile(r"^(?:eliminar|borrar|quitar|delete|remove)\s+(?:la\s+|the\s+)?(?:tarea\s+|task\s+)?(?:n[uú]mero\s+|number\s+|#\s*)?(.+)", re.IGNORECASE), "delete_task"),
     # Añadir / Crear tarea con prefijo explícito
-    (re.compile(r"^(?:añadir|agregar|crear|nueva|poner|anotar|recordar)\s+(?:la\s+|una\s+)?tarea\s+(.+)", re.IGNORECASE), "add_task"),
-    (re.compile(r"^(?:tarea|nueva\s+tarea)\s*[:\-]?\s*(.+)", re.IGNORECASE), "add_task"),
-    (re.compile(r"^(?:recordar|anotar)\s+(.+)", re.IGNORECASE), "add_task"),
+    (re.compile(r"^(?:añadir|agregar|crear|nueva|poner|anotar|recordar|add|create|new|remind\s+me\s+to)\s+(?:la\s+|una\s+|a\s+|the\s+)?(?:tarea\s+|task\s+)?(.+)", re.IGNORECASE), "add_task"),
+    (re.compile(r"^(?:tarea|nueva\s+tarea|task|new\s+task)\s*[:\-]?\s*(.+)", re.IGNORECASE), "add_task"),
+    (re.compile(r"^(?:recordar|anotar|remind\s+me\s+to)\s+(.+)", re.IGNORECASE), "add_task"),
 ]
 
 
@@ -323,8 +340,12 @@ class _VoiceWorker(QObject):
 
                 while self._is_running():
                     try:
-                        audio = recognizer.listen(source, timeout=1.5, phrase_time_limit=12)
-                        text = recognizer.recognize_google(audio, language="es-ES")
+                        try:
+                            from core.i18n import get_language
+                            lang_code = "en-US" if get_language() == "en" else "es-ES"
+                        except Exception:
+                            lang_code = "es-ES"
+                        text = recognizer.recognize_google(audio, language=lang_code)
                         text = text.strip() if text else ""
                         if text:
                             self.text_recognised.emit(text)

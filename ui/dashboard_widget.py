@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.tasks import DatabaseManager
+from core.i18n import tr, get_language
 
 
 
@@ -81,10 +82,10 @@ class KpiCard(QFrame):
         top_row = QHBoxLayout()
         icon_lbl = QLabel(icon)
         icon_lbl.setStyleSheet(f"font-size: 18px; color: {accent_color};")
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {COLOR_TEXT_MUTED};")
+        self._title_lbl = QLabel(title)
+        self._title_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {COLOR_TEXT_MUTED};")
         top_row.addWidget(icon_lbl)
-        top_row.addWidget(title_lbl)
+        top_row.addWidget(self._title_lbl)
         top_row.addStretch()
         layout.addLayout(top_row)
 
@@ -97,6 +98,9 @@ class KpiCard(QFrame):
         self._sub_label = QLabel(subtitle)
         self._sub_label.setStyleSheet(f"font-size: 11px; color: {COLOR_TEXT_SUB};")
         layout.addWidget(self._sub_label)
+
+    def set_title(self, title: str) -> None:
+        self._title_lbl.setText(title)
 
     def update_value(self, value: str, subtitle: Optional[str] = None) -> None:
         self._val_label.setText(value)
@@ -421,16 +425,16 @@ class DashboardWidget(QWidget):
 
         titles_box = QVBoxLayout()
         titles_box.setSpacing(2)
-        title_lbl = QLabel("📊 Panel de Rendimiento y Estadísticas")
-        title_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {COLOR_TEXT_MAIN};")
-        sub_lbl = QLabel("Métricas en tiempo real, análisis de productividad y distribución de tareas.")
-        sub_lbl.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_SUB};")
-        titles_box.addWidget(title_lbl)
-        titles_box.addWidget(sub_lbl)
+        self._title_lbl = QLabel(f"📊 {tr('dash_header_title')}")
+        self._title_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {COLOR_TEXT_MAIN};")
+        self._sub_lbl = QLabel(tr("dash_header_subtitle"))
+        self._sub_lbl.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_SUB};")
+        titles_box.addWidget(self._title_lbl)
+        titles_box.addWidget(self._sub_lbl)
         header_row.addLayout(titles_box)
         header_row.addStretch()
 
-        self._refresh_btn = QPushButton("🔄 Actualizar")
+        self._refresh_btn = QPushButton(f"🔄 {tr('btn_refresh')}")
         self._refresh_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_BG_CARD};
@@ -449,7 +453,7 @@ class DashboardWidget(QWidget):
         self._refresh_btn.clicked.connect(self.refresh_data)
         header_row.addWidget(self._refresh_btn)
 
-        self._reset_btn = QPushButton("🗑 Reiniciar")
+        self._reset_btn = QPushButton(f"🗑 {tr('btn_reset')}")
         self._reset_btn.setToolTip("Reiniciar métricas o restablecer tareas")
         self._reset_btn.setStyleSheet(f"""
             QPushButton {{
@@ -480,28 +484,28 @@ class DashboardWidget(QWidget):
 
         self._card_total = KpiCard(
             icon="📋",
-            title="TOTAL DE TAREAS",
+            title=tr("stat_total_tasks"),
             value="0",
             subtitle="Registradas en el sistema",
             accent_color=COLOR_ACTIVE,
         )
         self._card_active = KpiCard(
             icon="⏳",
-            title="TAREAS ACTIVAS",
+            title=tr("stat_active_tasks"),
             value="0",
             subtitle="Pendientes por realizar",
             accent_color=COLOR_AMBER,
         )
         self._card_completed = KpiCard(
             icon="✅",
-            title="COMPLETADAS",
+            title=tr("stat_completed"),
             value="0",
             subtitle="0% tasa de cumplimiento",
             accent_color=COLOR_COMPLETED,
         )
         self._card_overdue = KpiCard(
             icon="⚠️",
-            title="VENCIDAS",
+            title=tr("stat_overdue"),
             value="0",
             subtitle="Requieren atención inmediata",
             accent_color=COLOR_OVERDUE,
@@ -532,9 +536,9 @@ class DashboardWidget(QWidget):
         donut_layout.setContentsMargins(16, 14, 16, 14)
         donut_layout.setSpacing(8)
 
-        donut_title = QLabel("🎯 Estado Global de Cumplimiento")
-        donut_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
-        donut_layout.addWidget(donut_title)
+        self._donut_title = QLabel(f"🎯 {tr('chart_compliance')}")
+        self._donut_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        donut_layout.addWidget(self._donut_title)
 
         self._donut_chart = DonutChartWidget()
         donut_layout.addWidget(self._donut_chart, 1)
@@ -572,9 +576,9 @@ class DashboardWidget(QWidget):
         bar_layout.setContentsMargins(16, 14, 16, 14)
         bar_layout.setSpacing(8)
 
-        bar_title = QLabel("📈 Productividad Últimos 7 Días (Completadas)")
-        bar_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
-        bar_layout.addWidget(bar_title)
+        self._bar_title = QLabel(f"📈 {tr('chart_productivity')}")
+        self._bar_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        bar_layout.addWidget(self._bar_title)
 
         self._bar_chart = WeeklyBarChartWidget()
         bar_layout.addWidget(self._bar_chart, 1)
@@ -601,9 +605,9 @@ class DashboardWidget(QWidget):
         self._cat_container_layout.setContentsMargins(16, 14, 16, 14)
         self._cat_container_layout.setSpacing(8)
 
-        cat_hdr = QLabel("🏷 Progreso por Categorías")
-        cat_hdr.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
-        self._cat_container_layout.addWidget(cat_hdr)
+        self._cat_hdr = QLabel(f"🏷 {tr('chart_categories')}")
+        self._cat_hdr.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        self._cat_container_layout.addWidget(self._cat_hdr)
 
         self._cat_rows_layout = QVBoxLayout()
         self._cat_rows_layout.setSpacing(6)
@@ -625,9 +629,9 @@ class DashboardWidget(QWidget):
         prio_layout.setContentsMargins(16, 14, 16, 14)
         prio_layout.setSpacing(12)
 
-        prio_hdr = QLabel("⚡ Tareas por Prioridad")
-        prio_hdr.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
-        prio_layout.addWidget(prio_hdr)
+        self._prio_hdr = QLabel(f"⚡ {tr('chart_priority')}")
+        self._prio_hdr.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        prio_layout.addWidget(self._prio_hdr)
 
         self._prio_high_lbl = QLabel("Alta (0)")
         self._prio_high_bar = QProgressBar()
@@ -689,16 +693,19 @@ class DashboardWidget(QWidget):
         overdue = summary.get("overdue", 0)
         rate = summary.get("completion_rate", 0.0)
 
-        self._card_total.update_value(str(total), f"{active} activas, {completed} hechas")
-        self._card_active.update_value(str(active), f"{summary.get('due_today', 0)} para hoy")
-        self._card_completed.update_value(str(completed), f"{rate}% tasa de éxito")
-        self._card_overdue.update_value(str(overdue), "Al día" if overdue == 0 else "Requieren revisión")
+        self._card_total.update_value(str(total), tr("stat_active_done_hint", active=active, completed=completed))
+        self._card_active.update_value(str(active), tr("stat_today_hint", count=summary.get('due_today', 0)))
+        self._card_completed.update_value(str(completed), tr("stat_success_rate", rate=rate))
+        self._card_overdue.update_value(
+            str(overdue),
+            tr("stat_up_to_date") if overdue == 0 else ("Requires review" if get_language() == "en" else "Requieren revisión")
+        )
 
         # 2. Update Donut Chart & Legend
         self._donut_chart.set_data(completed, active, overdue)
-        self._leg_comp.setText(f"● Hechas: {completed}")
-        self._leg_act.setText(f"● Activas: {active}")
-        self._leg_over.setText(f"● Vencidas: {overdue}")
+        self._leg_comp.setText(f"● {tr('chart_done_legend', count=completed)}")
+        self._leg_act.setText(f"● {tr('chart_active_legend', count=active)}")
+        self._leg_over.setText(f"● {tr('chart_overdue_legend', count=overdue)}")
 
         # 3. Update Weekly Bar Chart
         self._bar_chart.set_data(weekly)
@@ -710,7 +717,7 @@ class DashboardWidget(QWidget):
                 item.widget().deleteLater()
 
         if not categories:
-            no_cat = QLabel("No hay categorías configuradas.")
+            no_cat = QLabel("No categories configured." if get_language() == "en" else "No hay categorías configuradas.")
             no_cat.setStyleSheet(f"color: {COLOR_TEXT_SUB}; font-size: 11px;")
             self._cat_rows_layout.addWidget(no_cat)
         else:
@@ -726,14 +733,29 @@ class DashboardWidget(QWidget):
         med = prio_totals.get(2, 0)
         low = prio_totals.get(1, 0)
 
-        self._prio_high_lbl.setText(f"Alta ({high} tareas)")
+        self._prio_high_lbl.setText(f"{tr('priority_high')} ({high})")
         self._prio_high_bar.setValue(int(high / p_tot * 100))
 
-        self._prio_med_lbl.setText(f"Media ({med} tareas)")
+        self._prio_med_lbl.setText(f"{tr('priority_med')} ({med})")
         self._prio_med_bar.setValue(int(med / p_tot * 100))
 
-        self._prio_low_lbl.setText(f"Baja ({low} tareas)")
+        self._prio_low_lbl.setText(f"{tr('priority_low')} ({low})")
         self._prio_low_bar.setValue(int(low / p_tot * 100))
+
+    def retranslate_ui(self) -> None:
+        self._title_lbl.setText(f"📊 {tr('dash_header_title')}")
+        self._sub_lbl.setText(tr("dash_header_subtitle"))
+        self._refresh_btn.setText(f"🔄 {tr('btn_refresh')}")
+        self._reset_btn.setText(f"🗑 {tr('btn_reset')}")
+        self._card_total.set_title(tr("stat_total_tasks"))
+        self._card_active.set_title(tr("stat_active_tasks"))
+        self._card_completed.set_title(tr("stat_completed"))
+        self._card_overdue.set_title(tr("stat_overdue"))
+        self._donut_title.setText(f"🎯 {tr('chart_compliance')}")
+        self._bar_title.setText(f"📈 {tr('chart_productivity')}")
+        self._cat_hdr.setText(f"🏷 {tr('chart_categories')}")
+        self._prio_hdr.setText(f"⚡ {tr('chart_priority')}")
+        self.refresh_data()
 
     def _on_reset_clicked(self) -> None:
         """Handle reset confirmation dialog with options to clear completed or reset all."""

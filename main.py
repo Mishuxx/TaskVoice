@@ -36,6 +36,7 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 # --------------------------------------------------------------------------
 from core.tasks import DatabaseManager
 from core.notifier import NotificationManager
+from core.i18n import set_language
 from ui.main_window import MainWindow, load_settings, DARK_QSS
 
 
@@ -76,9 +77,10 @@ def main() -> int:
     )
 
     # ------------------------------------------------------------------
-    # Load settings
+    # Load settings & Language
     # ------------------------------------------------------------------
     settings = load_settings()
+    set_language(settings.get("language", "es"))
 
     # ------------------------------------------------------------------
     # Apply initial stylesheet (dark Taskmaster by default)

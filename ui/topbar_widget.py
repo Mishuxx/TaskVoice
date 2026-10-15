@@ -22,6 +22,7 @@ from ui.tokens import (
     BG_DARK, BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY,
     TEXT_SECONDARY, TEXT_MUTED, ACCENT_VIOLET,
 )
+from core.i18n import tr
 
 
 class TopBarWidget(QWidget):
@@ -83,7 +84,7 @@ class TopBarWidget(QWidget):
         search_layout.addWidget(search_icon)
 
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Buscar tarea…")
+        self._search_edit.setPlaceholderText(tr("search_placeholder"))
         self._search_edit.setStyleSheet(
             f"QLineEdit {{ background: transparent; border: none; color: {TEXT_PRIMARY}; font-size: 13px; }}"
         )
@@ -106,7 +107,7 @@ class TopBarWidget(QWidget):
         self._theme_btn = QPushButton("☀")
         self._theme_btn.setFixedSize(40, 40)
         self._theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._theme_btn.setToolTip("Cambiar tema")
+        self._theme_btn.setToolTip(tr("theme_tooltip"))
         self._theme_btn.setStyleSheet(
             f"QPushButton {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; "
             f"border-radius: 10px; font-size: 16px; color: {TEXT_SECONDARY}; }}"
@@ -121,7 +122,7 @@ class TopBarWidget(QWidget):
         self._settings_btn = QPushButton("⚙")
         self._settings_btn.setFixedSize(40, 40)
         self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._settings_btn.setToolTip("Ajustes y Bots (Telegram / WhatsApp)")
+        self._settings_btn.setToolTip(tr("settings_tooltip"))
         self._settings_btn.setStyleSheet(
             f"QPushButton {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; "
             f"border-radius: 10px; font-size: 17px; color: {TEXT_SECONDARY}; }}"
@@ -130,25 +131,13 @@ class TopBarWidget(QWidget):
         self._settings_btn.clicked.connect(self.settings_clicked.emit)
         layout.addWidget(self._settings_btn)
 
-    def _setup_shortcut(self) -> None:
-        shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
-        shortcut.activated.connect(self._focus_search)
-
-    def focus_search(self) -> None:
-        self._focus_search()
-
-    def _focus_search(self) -> None:
-        self._search_edit.setFocus()
-        self._search_edit.selectAll()
-
-    def set_title(self, title: str) -> None:
-        self._title_lbl.setText(title)
-
-    def set_subtitle(self, subtitle: str) -> None:
-        self._subtitle_lbl.setText(subtitle)
+    def retranslate_ui(self) -> None:
+        self._search_edit.setPlaceholderText(tr("search_placeholder"))
+        self._theme_btn.setToolTip(tr("theme_tooltip"))
+        self._settings_btn.setToolTip(tr("settings_tooltip"))
 
     def set_stats(self, active_count: int, completed_today_count: int) -> None:
-        self._subtitle_lbl.setText(f"{active_count} activas · {completed_today_count} completadas hoy")
+        self._subtitle_lbl.setText(tr("stats_subtitle", active=active_count, completed=completed_today_count))
 
     def get_search_text(self) -> str:
         return self._search_edit.text()

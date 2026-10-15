@@ -18,6 +18,7 @@ from typing import Optional, List, Set, Union
 
 WEEKDAY_NAMES_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 WEEKDAY_SHORT_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+WEEKDAY_SHORT_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 WEEKDAY_LETTERS_ES = ["L", "M", "X", "J", "V", "S", "D"]
 
 WEEKDAYS_MON_TO_FRI = [0, 1, 2, 3, 4]
@@ -139,7 +140,7 @@ def format_recurrence_badge(
     """
     Format a concise HUD label for a task card.
     Examples:
-      - '🔁 Diario 09:00'
+      - '🔁 Diario 09:00' / '🔁 Daily 09:00'
       - '🔁 Diario 2x (09:00, 18:00)'
       - '🔁 Lun-Vie 2x (09:00, 18:00)'
       - '🔁 Lun, Mié 10:00'
@@ -147,19 +148,28 @@ def format_recurrence_badge(
     if not is_recurring:
         return ""
 
+    try:
+        from core.i18n import get_language
+        lang = get_language()
+    except Exception:
+        lang = "es"
+
+    is_en = (lang == "en")
+    short_names = WEEKDAY_SHORT_EN if is_en else WEEKDAY_SHORT_ES
+
     days = parse_recurrence_days(recurrence_days)
     times = parse_recurrence_times(recurrence_time)
 
     if len(days) == 7:
-        days_label = "Diario"
+        days_label = "Daily" if is_en else "Diario"
     elif days == WEEKDAYS_MON_TO_FRI:
-        days_label = "Lun-Vie"
+        days_label = "Mon-Fri" if is_en else "Lun-Vie"
     elif days == WEEKEND_DAYS:
-        days_label = "Fin de semana"
+        days_label = "Weekend" if is_en else "Fin de semana"
     elif len(days) == 1:
-        days_label = WEEKDAY_SHORT_ES[days[0]]
+        days_label = short_names[days[0]]
     else:
-        days_label = ", ".join(WEEKDAY_SHORT_ES[d] for d in days)
+        days_label = ", ".join(short_names[d] for d in days)
 
     if len(times) == 1:
         return f"🔁 {days_label} {times[0]}"

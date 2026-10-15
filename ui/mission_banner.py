@@ -29,6 +29,7 @@ from ui.tokens import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     FONT_FAMILY, FONT_MONO,
 )
+from core.i18n import tr, get_language
 
 
 class MissionBannerWidget(QWidget):
@@ -206,23 +207,25 @@ class MissionBannerWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         # 1. Badge: "MISIÓN DEL DÍA"
-        badge_rect = QRectF(24, 20, 134, 24)
+        badge_text = f"★ {tr('daily_mission')}"
+        badge_w = 145 if get_language() == "es" else 130
+        badge_rect = QRectF(24, 20, badge_w, 24)
         painter.setPen(QPen(QColor("#785217"), 1))
         painter.setBrush(QColor(245, 181, 68, 30))
         painter.drawRoundedRect(badge_rect, 6, 6)
 
         painter.setFont(QFont(FONT_FAMILY, 9, QFont.Weight.Bold))
         painter.setPen(QColor(ACCENT_GOLD))
-        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, "★ MISIÓN DEL DÍA")
+        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
         # 2. Main title / subtitle
         painter.setFont(QFont(FONT_FAMILY, 15, QFont.Weight.Bold))
         painter.setPen(QColor(TEXT_PRIMARY))
         
         if self._total_count == 0:
-            status_text = "Sin tareas asignadas para hoy"
+            status_text = "No tasks scheduled for today" if get_language() == "en" else "Sin tareas asignadas para hoy"
         else:
-            status_text = f"{self._completed_count} de {self._total_count} objetivos completados"
+            status_text = tr("mission_progress", done=self._completed_count, total=self._total_count)
         painter.drawText(24, 72, status_text)
 
         # 3. Checkpoints path (diamonds leading to a chest)
@@ -258,13 +261,16 @@ class MissionBannerWidget(QWidget):
         painter.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Medium))
         if self._all_done:
             painter.setPen(QColor(ACCENT_GOLD))
-            reward_str = "¡Cofre desbloqueado! Recompensa obtenida: +150 XP"
+            reward_str = tr("chest_ready")
         else:
             painter.setPen(QColor(TEXT_SECONDARY))
-            reward_str = "Completa todas para abrir el cofre: +150 XP"
+            reward_str = tr("mission_reward")
         painter.drawText(24, 142, reward_str)
 
         painter.restore()
+
+    def retranslate_ui(self) -> None:
+        self.update()
 
     def _draw_diamond_checkpoint(self, painter: QPainter, cx: int, cy: int, is_done: bool) -> None:
         """Draw a diamond checkpoint."""

@@ -69,8 +69,7 @@ from ui.tokens import (
 from ui.sidebar_widget import SidebarWidget
 from ui.topbar_widget import TopBarWidget
 from ui.background_widget import DottedBackgroundWidget
-
-
+from core.i18n import tr, set_language, get_language
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +80,7 @@ SETTINGS_PATH = Path.home() / ".taskvoice" / "settings.json"
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "theme": "dark",
+    "language": "es",
     "notifications_enabled": True,
     "reminder_minutes": 30,
     "daily_summary_enabled": True,
@@ -1049,14 +1049,14 @@ class MainWindow(QMainWindow):
         self._tasks_content_layout.addWidget(self._filter_bar)
 
         # Section: HOY
-        self._section_today_header = self._create_section_header("HOY", 0)
+        self._section_today_header = self._create_section_header("section_today", 0)
         self._tasks_content_layout.addWidget(self._section_today_header)
         self._section_today_container = QVBoxLayout()
         self._section_today_container.setSpacing(8)
         self._tasks_content_layout.addLayout(self._section_today_container)
 
         # Section: PRÓXIMAS
-        self._section_upcoming_header = self._create_section_header("PRÓXIMAS", 0)
+        self._section_upcoming_header = self._create_section_header("section_upcoming", 0)
         self._tasks_content_layout.addWidget(self._section_upcoming_header)
         self._section_upcoming_container = QVBoxLayout()
         self._section_upcoming_container.setSpacing(8)
@@ -1123,16 +1123,17 @@ class MainWindow(QMainWindow):
 
         parent_layout.addWidget(bar)
 
-    def _create_section_header(self, title: str, count: int) -> QWidget:
+    def _create_section_header(self, key: str, count: int) -> QWidget:
         w = QWidget()
         w.setFixedHeight(28)
         w.setStyleSheet("background: transparent;")
+        w.setProperty("section_key", key)
         l = QHBoxLayout(w)
         l.setContentsMargins(2, 0, 2, 0)
         l.setSpacing(8)
 
-        lbl = QLabel(f"{title} ({count})")
-        lbl.setObjectName(f"header_label_{title}")
+        lbl = QLabel(f"{tr(key)} ({count})")
+        lbl.setObjectName(f"header_label_{key}")
         lbl.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
         lbl.setStyleSheet(
             f"color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px;"
@@ -1145,10 +1146,10 @@ class MainWindow(QMainWindow):
         l.addWidget(line, stretch=1)
         return w
 
-    def _update_section_header(self, header_widget: QWidget, title: str, count: int) -> None:
-        lbl = header_widget.findChild(QLabel, f"header_label_{title}")
+    def _update_section_header(self, header_widget: QWidget, key: str, count: int) -> None:
+        lbl = header_widget.findChild(QLabel, f"header_label_{key}")
         if lbl:
-            lbl.setText(f"{title} ({count})")
+            lbl.setText(f"{tr(key)} ({count})")
 
     # ------------------------------------------------------------------
     # System tray & Shortcuts
@@ -1553,8 +1554,8 @@ class MainWindow(QMainWindow):
         self._current_tasks = list(tasks)
 
         # Update headers
-        self._update_section_header(self._section_today_header, "HOY", len(today_list))
-        self._update_section_header(self._section_upcoming_header, "PRÓXIMAS", len(upcoming_list))
+        self._update_section_header(self._section_today_header, "section_today", len(today_list))
+        self._update_section_header(self._section_upcoming_header, "section_upcoming", len(upcoming_list))
 
         self._section_today_header.setVisible(len(today_list) > 0)
         self._section_upcoming_header.setVisible(len(upcoming_list) > 0)
@@ -1602,10 +1603,10 @@ class MainWindow(QMainWindow):
     def _refresh_status(self) -> None:
         stats = self._db.get_stats()
         self._status_counts.setText(
-            f"Total {stats['total']} · Activas {stats['active']} · Completadas hoy {stats['completed_today']}"
+            tr("status_summary", total=stats['total'], active=stats['active'], completed=stats['completed_today'])
         )
         self._topbar.set_subtitle(
-            f"{stats['active']} activas · {stats['completed_today']} completadas hoy"
+            tr("stats_subtitle", active=stats['active'], completed=stats['completed_today'])
         )
 
     def _start_status_refresh(self) -> None:
@@ -1746,7 +1747,9 @@ class MainWindow(QMainWindow):
     def _on_settings_saved(self, new_settings: Dict[str, Any]) -> None:
         self._settings = new_settings
         _save_settings(new_settings)
+        set_language(new_settings.get("language", "es"))
         self._apply_theme(new_settings.get("theme", "dark"))
+        self._retranslate_ui()
 
         self._notifier.set_enabled(new_settings.get("notifications_enabled", True))
         self._notifier.update_settings(new_settings)
@@ -1765,6 +1768,27 @@ class MainWindow(QMainWindow):
 
         self._refresh_categories_sidebar()
         self._refresh_tasks()
+
+    def _retranslate_ui(self) -> None:
+        """Dynamically retranslate all child widgets upon language change."""
+        self.setWindowTitle(tr("app_title"))
+        if hasattr(self, "_topbar") and self._topbar:
+            self._topbar.retranslate_ui()
+        if hasattr(self, "_sidebar") and self._sidebar:
+            self._sidebar.retranslate_ui()
+        if hasattr(self, "_quick_add") and self._quick_add:
+            self._quick_add.retranslate_ui()
+        if hasattr(self, "_filter_bar") and self._filter_bar:
+            self._filter_bar.retranslate_ui()
+        if hasattr(self, "_empty_state") and self._empty_state:
+            self._empty_state.retranslate_ui()
+        if hasattr(self, "_mission_banner") and self._mission_banner:
+            self._mission_banner.retranslate_ui()
+        if hasattr(self, "_dashboard_view") and self._dashboard_view:
+            self._dashboard_view.retranslate_ui()
+        if hasattr(self, "_voice_status_lbl") and self._voice_status_lbl:
+            self._voice_status_lbl.setText(tr("voice_status_ready"))
+        self._refresh_status()
 
     # ------------------------------------------------------------------
     # Window close

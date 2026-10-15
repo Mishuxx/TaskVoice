@@ -17,6 +17,7 @@ from ui.tokens import (
     BG_SURFACE, BORDER_SUBTLE, ACCENT_TURQUOISE,
     TEXT_PRIMARY, TEXT_SECONDARY,
 )
+from core.i18n import tr
 
 
 class FilterBarWidget(QWidget):
@@ -35,9 +36,9 @@ class FilterBarWidget(QWidget):
         layout.setSpacing(8)
 
         # 1. Pill buttons
-        self._btn_all = QPushButton("Todas")
-        self._btn_today = QPushButton("Hoy")
-        self._btn_high = QPushButton("Prioridad alta")
+        self._btn_all = QPushButton(tr("filter_all"))
+        self._btn_today = QPushButton(tr("filter_today"))
+        self._btn_high = QPushButton(tr("filter_high_prio"))
 
         self._pills = {
             "all": self._btn_all,
@@ -54,7 +55,7 @@ class FilterBarWidget(QWidget):
         layout.addStretch()
 
         # 2. "Mostrar completadas" checkbox
-        self._completed_cb = QCheckBox("Mostrar completadas")
+        self._completed_cb = QCheckBox(tr("filter_show_completed"))
         self._completed_cb.setChecked(False)
         self._completed_cb.setCursor(Qt.CursorShape.PointingHandCursor)
         self._completed_cb.setStyleSheet(
@@ -97,6 +98,12 @@ class FilterBarWidget(QWidget):
 
     def is_showing_completed(self) -> bool:
         return self._completed_cb.isChecked()
+
+    def retranslate_ui(self) -> None:
+        self._btn_all.setText(tr("filter_all"))
+        self._btn_today.setText(tr("filter_today"))
+        self._btn_high.setText(tr("filter_high_prio"))
+        self._completed_cb.setText(tr("filter_show_completed"))
 
     def _update_styles(self) -> None:
         for key, btn in self._pills.items():

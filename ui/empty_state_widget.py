@@ -15,6 +15,7 @@ from ui.tokens import (
     ACCENT_GOLD, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     FONT_FAMILY,
 )
+from core.i18n import tr
 
 
 class PixelTrophyWidget(QWidget):
@@ -105,12 +106,16 @@ class EmptyStateWidget(QWidget):
         self._trophy = PixelTrophyWidget()
         layout.addWidget(self._trophy, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self._title = QLabel("Nada pendiente por aquí")
+        self._title = QLabel(tr("empty_title"))
         self._title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {TEXT_PRIMARY};")
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._title)
 
-        self._subtitle = QLabel("Agrega una tarea o pulsa el micrófono para dictarla")
+        self._subtitle = QLabel(tr("empty_subtitle"))
         self._subtitle.setStyleSheet(f"font-size: 13px; color: {TEXT_MUTED};")
         self._subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._subtitle)
+
+    def retranslate_ui(self) -> None:
+        self._title.setText(tr("empty_title"))
+        self._subtitle.setText(tr("empty_subtitle"))

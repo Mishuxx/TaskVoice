@@ -28,6 +28,7 @@ from ui.tokens import (
     ACCENT_TURQUOISE_BRIGHT, XP_EMPTY_BLOCK, ACCENT_GOLD,
     ACCENT_GOLD_BG, CATEGORY_COLORS,
 )
+from core.i18n import tr
 
 
 # ---------------------------------------------------------------------------
@@ -38,11 +39,15 @@ class NavButton(QPushButton):
 
     def __init__(self, text: str, icon_str: str, parent=None):
         super().__init__(parent)
+        self._icon_str = icon_str
         self.setText(f"  {icon_str}  {text}")
         self.setFixedHeight(44)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_style(False)
+
+    def set_nav_text(self, text: str) -> None:
+        self.setText(f"  {self._icon_str}  {text}")
 
     def _apply_style(self, active: bool) -> None:
         if active:
@@ -400,14 +405,14 @@ class PlayerCard(QFrame):
         quests_done = profile.get("quests_completed_count", 0)
 
         self._avatar.set_level(level)
-        self._lvl_lbl.setText(f"NIVEL {level}")
+        self._lvl_lbl.setText(tr("level_label", level=level))
         self._rank_title.setText(rank.get("title", "Recluta Terran"))
 
         self._xp_bar.set_xp(xp, xp_needed)
         self._xp_current_lbl.setText(f"{xp} / {xp_needed} XP")
 
         remaining = max(0, xp_needed - xp)
-        self._xp_remaining_lbl.setText(f"{remaining} para N{level + 1}")
+        self._xp_remaining_lbl.setText(tr("xp_to_next", remaining=remaining, next_lvl=level + 1))
 
         # Update medals
         self._medal_first_task.set_unlocked(tasks_done > 0)
@@ -468,10 +473,12 @@ class SidebarWidget(QWidget):
         # ------------------------------------------------------------------
         # 2. Vertical Navigation Buttons
         # ------------------------------------------------------------------
-        self._nav_tasks = NavButton("Tareas", "📋")
-        self._nav_dashboard = NavButton("Dashboard", "📈")
-        self._nav_missions = NavButton("Misiones", "⚔️")
-        self._nav_settings = NavButton("Ajustes", "⚙️")
+        # 2. Vertical Navigation Buttons
+        # ------------------------------------------------------------------
+        self._nav_tasks = NavButton(tr("nav_tasks"), "📋")
+        self._nav_dashboard = NavButton(tr("nav_dashboard"), "📈")
+        self._nav_missions = NavButton(tr("nav_missions"), "⚔️")
+        self._nav_settings = NavButton(tr("nav_settings"), "⚙️")
 
         self._nav_tasks.setChecked(True)
 
@@ -490,18 +497,18 @@ class SidebarWidget(QWidget):
         # ------------------------------------------------------------------
         # 3. Categorías Section
         # ------------------------------------------------------------------
-        cat_header = QLabel("CATEGORÍAS")
-        cat_header.setStyleSheet(
+        self._cat_header = QLabel(tr("categories_header"))
+        self._cat_header.setStyleSheet(
             f"font-size: 11px; font-weight: 700; color: {TEXT_MUTED}; letter-spacing: 1px; padding-left: 6px;"
         )
-        layout.addWidget(cat_header)
+        layout.addWidget(self._cat_header)
 
         self._cat_container = QVBoxLayout()
         self._cat_container.setSpacing(4)
         layout.addLayout(self._cat_container)
 
         # "+ Nueva categoría" button
-        self._add_cat_btn = QPushButton("+ Nueva categoría")
+        self._add_cat_btn = QPushButton(tr("new_category"))
         self._add_cat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_cat_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {TEXT_SECONDARY}; text-align: left; padding: 6px 10px; "
@@ -519,6 +526,16 @@ class SidebarWidget(QWidget):
         self._player_card = PlayerCard()
         self._player_card.card_clicked.connect(self.player_card_clicked.emit)
         layout.addWidget(self._player_card)
+
+    def retranslate_ui(self) -> None:
+        self._nav_tasks.set_nav_text(tr("nav_tasks"))
+        self._nav_dashboard.set_nav_text(tr("nav_dashboard"))
+        self._nav_missions.set_nav_text(tr("nav_missions"))
+        self._nav_settings.set_nav_text(tr("nav_settings"))
+        self._cat_header.setText(tr("categories_header"))
+        self._add_cat_btn.setText(tr("new_category"))
+        if self._cat_items:
+            self._cat_items[0]._label.setText(tr("cat_all"))
 
     def _select_nav(self, index: int) -> None:
         self._nav_tasks.setChecked(index == 0)
@@ -542,7 +559,7 @@ class SidebarWidget(QWidget):
         # "Todas" item
         total_count = counts.get(None, 0)
         all_item = CategoryItemButton(
-            name="Todas",
+            name=tr("cat_all"),
             color=ACCENT_VIOLET_SOFT,
             cat_id=None,
             count=total_count,

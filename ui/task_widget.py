@@ -37,6 +37,7 @@ from ui.tokens import (
     PRIORITY_XP, FONT_FAMILY, FONT_MONO,
 )
 from core.recurrence import format_recurrence_badge, parse_recurrence_times
+from core.i18n import tr, get_language
 
 
 class HudCheckbox(QWidget):
@@ -303,7 +304,7 @@ class TaskWidget(QFrame):
         # Priority badge
         prio = task.get("priority", 2)
         if prio == 3:
-            self._priority_badge.setText(PRIORITY_HIGH_LABEL)
+            self._priority_badge.setText(tr("priority_high").upper())
             self._priority_badge.setStyleSheet(
                 f"""
                 background-color: rgba(245, 158, 11, 0.16);
@@ -314,7 +315,7 @@ class TaskWidget(QFrame):
             )
             xp_amount = PRIORITY_XP.get(3, 100)
         elif prio == 1:
-            self._priority_badge.setText(PRIORITY_LOW_LABEL)
+            self._priority_badge.setText(tr("priority_low").upper())
             self._priority_badge.setStyleSheet(
                 f"""
                 background-color: rgba(100, 116, 139, 0.16);
@@ -325,7 +326,7 @@ class TaskWidget(QFrame):
             )
             xp_amount = PRIORITY_XP.get(1, 30)
         else:
-            self._priority_badge.setText(PRIORITY_MED_LABEL)
+            self._priority_badge.setText(tr("priority_med").upper())
             self._priority_badge.setStyleSheet(
                 f"""
                 background-color: rgba(96, 165, 250, 0.16);
@@ -349,6 +350,9 @@ class TaskWidget(QFrame):
         else:
             self._cat_container.setVisible(False)
 
+        # Recurrence check
+        is_rec = bool(task.get("is_recurring", 0))
+
         # Due date
         due = task.get("due_date")
         if due:
@@ -364,14 +368,14 @@ class TaskWidget(QFrame):
                     inst_suffix = f" ({curr_idx}/{len(r_times)})"
 
                 if diff.total_seconds() < 0 and not is_completed:
-                    self._due_label.setText(f"⚠ Vencida: {dt.strftime('%d/%m %H:%M')}{inst_suffix}")
+                    self._due_label.setText(f"{tr('due_overdue', date=dt.strftime('%d/%m %H:%M'))}{inst_suffix}")
                     self._due_label.setStyleSheet("color: #F87171; font-size: 12px;")
                 elif diff.total_seconds() < 3600 and not is_completed:
-                    self._due_label.setText(f"⏰ {dt.strftime('%d/%m %H:%M')}{inst_suffix}")
+                    self._due_label.setText(f"{tr('due_soon', date=dt.strftime('%d/%m %H:%M'))}{inst_suffix}")
                     self._due_label.setStyleSheet("color: #FBBF24; font-size: 12px;")
                 else:
                     date_display = dt.strftime("%d/%m/%Y %H:%M") if is_rec else dt.strftime("%d/%m/%Y")
-                    self._due_label.setText(f"📅 {date_display}{inst_suffix}")
+                    self._due_label.setText(f"{tr('due_date', date=date_display)}{inst_suffix}")
                     self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
             except Exception:
                 self._due_label.setText(f"📅 {due}")
@@ -379,8 +383,7 @@ class TaskWidget(QFrame):
         else:
             self._due_label.setText("")
 
-        # Recurrence
-        is_rec = bool(task.get("is_recurring", 0))
+        # Recurrence badge
         if is_rec:
             badge_text = format_recurrence_badge(
                 task.get("recurrence_days"),
@@ -493,11 +496,11 @@ class TaskWidget(QFrame):
             }}
             """
         )
-        edit_action = menu.addAction("✏ Editar")
-        subtask_action = menu.addAction("➕ Añadir Subtarea")
-        move_action = menu.addAction("📁 Mover a Categoría")
+        edit_action = menu.addAction(f"✏ {tr('task_edit')}")
+        subtask_action = menu.addAction(f"➕ {tr('task_add_subtask')}")
+        move_action = menu.addAction(f"📁 {tr('task_move_cat')}")
         menu.addSeparator()
-        delete_action = menu.addAction("🗑 Eliminar")
+        delete_action = menu.addAction(f"🗑 {tr('task_delete')}")
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:

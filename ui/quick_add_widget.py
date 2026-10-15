@@ -21,6 +21,7 @@ from ui.tokens import (
     BG_SURFACE, BORDER_SUBTLE, ACCENT_VIOLET,
     TEXT_PRIMARY, TEXT_MUTED,
 )
+from core.i18n import tr
 
 
 class QuickAddWidget(QWidget):
@@ -41,7 +42,7 @@ class QuickAddWidget(QWidget):
 
         # 1. Text input
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Agregar tarea…")
+        self._input.setPlaceholderText(tr("quick_add_placeholder"))
         self._input.setFixedHeight(46)
         self._input.setStyleSheet(
             f"""
@@ -72,7 +73,7 @@ class QuickAddWidget(QWidget):
         layout.addWidget(self._mic_btn)
 
         # 3. Add button (violet)
-        self._add_btn = QPushButton("Agregar")
+        self._add_btn = QPushButton(tr("btn_add"))
         self._add_btn.setFixedHeight(46)
         self._add_btn.setMinimumWidth(90)
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -99,7 +100,7 @@ class QuickAddWidget(QWidget):
         layout.addWidget(self._add_btn)
 
         # 4. Complex / Detailed Task button (HUD turquoise accent)
-        self._complex_btn = QPushButton("➕ Tarea compleja")
+        self._complex_btn = QPushButton(f"➕ {tr('btn_complex')}")
         self._complex_btn.setFixedHeight(46)
         self._complex_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._complex_btn.setToolTip("Crear tarea compleja / recurrente con días, horas, subtareas y fechas (Ctrl+N)")
@@ -180,4 +181,10 @@ class QuickAddWidget(QWidget):
                 }}
                 """
             )
-            self._mic_btn.setToolTip("Dictar por voz")
+            self._mic_btn.setToolTip(tr("voice_dictate"))
+
+    def retranslate_ui(self) -> None:
+        self._input.setPlaceholderText(tr("quick_add_placeholder"))
+        self._add_btn.setText(tr("btn_add"))
+        self._complex_btn.setText(f"➕ {tr('btn_complex')}")
+        self._update_mic_style()

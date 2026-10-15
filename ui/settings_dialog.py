@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.bot_notifier import test_telegram, test_whatsapp
+from core.i18n import tr, get_language
 
 
 class BotTestWorker(QThread):
@@ -61,7 +62,7 @@ class SettingsDialog(QDialog):
         self._settings = dict(current_settings)
         self._active_worker: Optional[BotTestWorker] = None
 
-        self.setWindowTitle("Ajustes – Taskmaster")
+        self.setWindowTitle(tr("settings_title"))
         self.setMinimumSize(640, 560)
         self.setModal(True)
 
@@ -91,11 +92,11 @@ class SettingsDialog(QDialog):
         self._voice_tab      = self._build_voice_tab()
         self._categories_tab = self._build_categories_tab()
 
-        self._tabs.addTab(self._general_tab,    "⚙ General")
-        self._tabs.addTab(self._notif_tab,      "🔔 Notificaciones")
-        self._tabs.addTab(self._bots_tab,       "🤖 Bots (Telegram / WhatsApp)")
-        self._tabs.addTab(self._voice_tab,      "🎙 Voz")
-        self._tabs.addTab(self._categories_tab, "🏷 Categorías")
+        self._tabs.addTab(self._general_tab,    tr("tab_general"))
+        self._tabs.addTab(self._notif_tab,      tr("tab_notifications"))
+        self._tabs.addTab(self._bots_tab,       tr("tab_bots"))
+        self._tabs.addTab(self._voice_tab,      tr("tab_voice"))
+        self._tabs.addTab(self._categories_tab, tr("tab_categories"))
 
         layout.addWidget(self._tabs)
 
@@ -110,6 +111,13 @@ class SettingsDialog(QDialog):
             "QPushButton[text='Cancel'] { background: #1F2837; color: #9AA4B5; border: 1px solid #2D3748; }"
             "QPushButton[text='Cancel']:hover { background: #283344; color: #E8ECF2; }"
         )
+        save_btn = btn_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn:
+            save_btn.setText(tr("btn_save"))
+        cancel_btn = btn_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn:
+            cancel_btn.setText(tr("btn_cancel"))
+
         btn_box.accepted.connect(self._save)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -124,12 +132,12 @@ class SettingsDialog(QDialog):
         form.setSpacing(16)
 
         self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Oscuro (StarCraft / HUD)", "Claro"])
-        form.addRow("Tema visual:", self._theme_combo)
+        self._theme_combo.addItems([tr("theme_dark"), tr("theme_light")])
+        form.addRow(tr("lbl_theme"), self._theme_combo)
 
         self._lang_combo = QComboBox()
-        self._lang_combo.addItems(["Español", "English"])
-        form.addRow("Idioma de interfaz:", self._lang_combo)
+        self._lang_combo.addItems([tr("lang_es"), tr("lang_en")])
+        form.addRow(tr("lbl_language"), self._lang_combo)
 
         return w
 
@@ -515,6 +523,7 @@ class SettingsDialog(QDialog):
 
         # General
         self._theme_combo.setCurrentIndex(0 if s.get("theme", "dark") == "dark" else 1)
+        self._lang_combo.setCurrentIndex(1 if s.get("language", "es") == "en" else 0)
 
         # Notifications
         self._notif_enabled_cb.setChecked(s.get("notifications_enabled", True))
@@ -543,6 +552,7 @@ class SettingsDialog(QDialog):
         t = self._summary_time_edit.time()
         self._settings.update({
             "theme":                 "dark" if self._theme_combo.currentIndex() == 0 else "light",
+            "language":              "en" if self._lang_combo.currentIndex() == 1 else "es",
             "notifications_enabled": self._notif_enabled_cb.isChecked(),
             "reminder_minutes":      self._reminder_spin.value(),
             "daily_summary_enabled": self._summary_enabled_cb.isChecked(),
