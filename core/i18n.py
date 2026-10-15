@@ -29,7 +29,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "stats_subtitle": "{active} activas · {completed} completadas hoy",
         "search_placeholder": "Buscar tarea…",
         "theme_tooltip": "Cambiar tema",
-        "settings_tooltip": "Ajustes y Bots (Telegram / WhatsApp)",
+        "settings_tooltip": "Ajustes y Bot de Telegram",
 
         # Quick Add
         "quick_add_placeholder": "Agregar tarea… (ej. Revisar correos a las 10:00)",
@@ -144,7 +144,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "settings_title": "Ajustes – Taskmaster",
         "tab_general": "⚙ General",
         "tab_notifications": "🔔 Notificaciones",
-        "tab_bots": "🤖 Bots (Telegram / Twilio)",
+        "tab_bots": "🤖 Telegram",
         "tab_voice": "🎙 Voz",
         "tab_categories": "🏷 Categorías",
         "lbl_theme": "Tema visual:",
@@ -194,7 +194,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "stats_subtitle": "{active} active · {completed} completed today",
         "search_placeholder": "Search task…",
         "theme_tooltip": "Toggle theme",
-        "settings_tooltip": "Settings & Bots (Telegram / WhatsApp)",
+        "settings_tooltip": "Settings & Telegram Bot",
 
         # Quick Add
         "quick_add_placeholder": "Add task… (e.g. Check emails at 10:00)",
@@ -309,7 +309,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "settings_title": "Settings – Taskmaster",
         "tab_general": "⚙ General",
         "tab_notifications": "🔔 Notifications",
-        "tab_bots": "🤖 Bots (Telegram / Twilio)",
+        "tab_bots": "🤖 Telegram",
         "tab_voice": "🎙 Voice",
         "tab_categories": "🏷 Categories",
         "lbl_theme": "Visual theme:",

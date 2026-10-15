@@ -99,7 +99,8 @@ class NotificationManager:
         self.reminder_minutes = reminder_minutes
         self.daily_summary_hour = daily_summary_hour
         self.daily_summary_minute = daily_summary_minute
-        self._settings: Dict[str, Any] = dict(settings) if settings else {}
+        self.evening_summary_hour = int(self._settings.get("evening_summary_hour", 21))
+        self.evening_summary_minute = int(self._settings.get("evening_summary_minute", 0))
         self._scheduler = None
         self._scheduled_reminders: Dict[int, str] = {}  # task_id -> job_id
         self._enabled = True
@@ -128,7 +129,7 @@ class NotificationManager:
                 replace_existing=True,
             )
 
-            # Daily summary
+            # Daily morning summary
             self._scheduler.add_job(
                 self.daily_summary,
                 trigger=CronTrigger(
@@ -139,8 +140,19 @@ class NotificationManager:
                 replace_existing=True,
             )
 
+            # Evening wrap-up summary
+            self._scheduler.add_job(
+                self.evening_summary,
+                trigger=CronTrigger(
+                    hour=self.evening_summary_hour,
+                    minute=self.evening_summary_minute,
+                ),
+                id="evening_summary",
+                replace_existing=True,
+            )
+
             self._scheduler.start()
-            logger.info("APScheduler started.")
+            logger.info("APScheduler started with morning and evening summaries.")
         except ImportError:
             logger.warning(
                 "APScheduler not installed. Scheduled notifications will not work."
@@ -203,64 +215,135 @@ class NotificationManager:
         """Update notification settings including external bot configs."""
         self._settings = dict(settings)
 
-    def _notify(self, title: str, message: str, timeout: int = 10) -> None:
-        """Send notification via local desktop backend and external bots (Telegram / WhatsApp)."""
-        send_notification(title, message, timeout=timeout)
+    def notify_event(
+        self,
+        title: str,
+        message: str,
+        event_type: str = "general",
+        timeout: Optional[int] = None,
+    ) -> None:
+        """Send notification via local desktop backend and Telegram with event filtering."""
+        if not self._enabled and event_type not in ("test", "general"):
+            return
+
+        # Desktop notification duration
+        duration = timeout or int(self._settings.get("notification_duration", 10))
+
+        # Check desktop event filters
+        send_desktop = bool(self._settings.get("notifications_enabled", True))
+        if event_type == "level_up" and not self._settings.get("desktop_notify_level_up", True):
+            send_desktop = False
+        elif event_type == "quest_completed" and not self._settings.get("desktop_notify_quests", True):
+            send_desktop = False
+
+        if send_desktop:
+            send_notification(title, message, timeout=duration)
+
+        # Dispatch to Telegram with granular filtering
         if self._settings:
             try:
                 from core.bot_notifier import send_bot_notification_async
-                send_bot_notification_async(title, message, self._settings)
+                send_bot_notification_async(title, message, self._settings, event_type=event_type)
             except Exception as exc:
-                logger.debug("Failed to dispatch bot notification: %s", exc)
+                logger.debug("Failed to dispatch Telegram notification: %s", exc)
+
+    def _notify(self, title: str, message: str, timeout: int = 10, event_type: str = "general") -> None:
+        self.notify_event(title, message, event_type=event_type, timeout=timeout)
 
     def _send_task_reminder(self, task: Dict[str, Any]) -> None:
         """Called by APScheduler to send the actual reminder notification."""
         title = f"⏰ Recordatorio: {task.get('title', 'Tarea')}"
         due = task.get("due_date", "")
         message = f"Vence en {self.reminder_minutes} min" + (f" ({due})" if due else "")
-        self._notify(title, message)
+        self.notify_event(title, message, event_type="reminder")
 
     # ------------------------------------------------------------------
     # Periodic check
     # ------------------------------------------------------------------
 
     def _check_due_tasks(self) -> None:
-        """Periodically called to find tasks due soon and send notifications."""
+        """Periodically called to find tasks due soon or due right now."""
         if not self._enabled:
             return
         try:
             tasks = self._db.get_tasks_due_soon(self.reminder_minutes)
+            now = datetime.now()
             for task in tasks:
                 tid = task["id"]
-                # Only notify once per check cycle (guard with scheduled reminders)
-                if tid not in self._scheduled_reminders:
+                due_str = task.get("due_date")
+                if not due_str:
+                    continue
+                try:
+                    due_dt = datetime.fromisoformat(due_str)
+                    diff_min = (due_dt - now).total_seconds() / 60.0
+                except Exception:
+                    diff_min = 999.0
+
+                # 1. Exact due time alert (0 min)
+                if -1.0 <= diff_min <= 1.0:
+                    due_key = f"due_now_{tid}"
+                    if due_key not in self._scheduled_reminders:
+                        title = f"⏰ ¡Hora límite!: {task.get('title', 'Tarea')}"
+                        msg = f"La tarea ha alcanzado su horario de vencimiento ({due_str})."
+                        self.notify_event(title, msg, event_type="due_now")
+                        self._scheduled_reminders[due_key] = "1"
+
+                # 2. Advance reminder
+                elif tid not in self._scheduled_reminders and diff_min > 1.0:
                     self._send_task_reminder(task)
-                    # Mark as notified until restart
                     self._scheduled_reminders[tid] = f"notified_{tid}"
         except Exception as exc:
             logger.error("Error checking due tasks: %s", exc)
 
     # ------------------------------------------------------------------
-    # Daily summary
+    # Daily summaries (Morning & Evening)
     # ------------------------------------------------------------------
 
     def daily_summary(self) -> None:
-        """Send a daily summary notification with task statistics."""
-        if not self._enabled:
+        """Send a morning daily summary notification with task statistics and lore."""
+        if not self._enabled or not self._settings.get("daily_summary_enabled", True):
             return
         try:
             stats = self._db.get_stats()
+            profile = self._db.get_gamification_profile()
             active = stats.get("active", 0)
-            completed_today = stats.get("completed_today", 0)
             overdue = stats.get("overdue", 0)
+            streak = profile.get("streak_days", 1)
+            lvl = profile.get("level", 1)
+
             message = (
-                f"Tareas activas: {active}\n"
-                f"Completadas hoy: {completed_today}\n"
-                f"Vencidas: {overdue}"
+                f"🌅 Buenos días Comandante (Nivel {lvl}).\n"
+                f"• Tareas activas para hoy: {active}\n"
+                f"• Tareas vencidas: {overdue}\n"
+                f"• Racha operativa: 🔥 {streak} día(s)\n"
+                f"¡Buen día de operaciones tácticas!"
             )
-            self._notify("📋 Resumen diario – Taskmaster", message, timeout=15)
+            self.notify_event("📋 Resumen Matutino – Taskmaster", message, event_type="morning_summary", timeout=15)
         except Exception as exc:
-            logger.error("Error generating daily summary: %s", exc)
+            logger.error("Error generating morning summary: %s", exc)
+
+    def evening_summary(self) -> None:
+        """Send an evening wrap-up notification with achievements and balance."""
+        if not self._enabled or not self._settings.get("evening_summary_enabled", True):
+            return
+        try:
+            stats = self._db.get_stats()
+            profile = self._db.get_gamification_profile()
+            completed_today = stats.get("completed_today", 0)
+            active = stats.get("active", 0)
+            streak = profile.get("streak_days", 1)
+            lvl = profile.get("level", 1)
+
+            message = (
+                f"🌙 Balance Operativo de la Jornada (Nivel {lvl}):\n"
+                f"• Tareas completadas hoy: ✔ {completed_today}\n"
+                f"• Tareas pendientes restantes: {active}\n"
+                f"• Racha militar activa: 🔥 {streak} días\n"
+                f"¡Excelente disciplina táctica!"
+            )
+            self.notify_event("🌙 Balance Nocturno – Taskmaster", message, event_type="evening_summary", timeout=15)
+        except Exception as exc:
+            logger.error("Error generating evening summary: %s", exc)
 
     # ------------------------------------------------------------------
     # Settings update
@@ -271,12 +354,18 @@ class NotificationManager:
         daily_hour: Optional[int] = None,
         daily_minute: Optional[int] = None,
         reminder_minutes: Optional[int] = None,
+        evening_hour: Optional[int] = None,
+        evening_minute: Optional[int] = None,
     ) -> None:
         """Update scheduler settings at runtime."""
         if daily_hour is not None:
             self.daily_summary_hour = daily_hour
         if daily_minute is not None:
             self.daily_summary_minute = daily_minute
+        if evening_hour is not None:
+            self.evening_summary_hour = evening_hour
+        if evening_minute is not None:
+            self.evening_summary_minute = evening_minute
         if reminder_minutes is not None:
             self.reminder_minutes = reminder_minutes
 
@@ -291,8 +380,15 @@ class NotificationManager:
                     minute=self.daily_summary_minute,
                 ),
             )
+            self._scheduler.reschedule_job(
+                "evening_summary",
+                trigger=CronTrigger(
+                    hour=self.evening_summary_hour,
+                    minute=self.evening_summary_minute,
+                ),
+            )
         except Exception as exc:
-            logger.error("Failed to reschedule daily summary: %s", exc)
+            logger.error("Failed to reschedule summaries: %s", exc)
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all notifications."""

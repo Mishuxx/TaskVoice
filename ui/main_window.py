@@ -81,28 +81,39 @@ SETTINGS_PATH = Path.home() / ".taskvoice" / "settings.json"
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "theme": "dark",
     "language": "es",
+    # Local Notifications
     "notifications_enabled": True,
     "reminder_minutes": 30,
+    "notify_on_due_time": True,
+    "notify_overdue": False,
+    "notification_duration": 10,
     "daily_summary_enabled": True,
     "daily_summary_hour": 9,
     "daily_summary_minute": 0,
+    "evening_summary_enabled": True,
+    "evening_summary_hour": 21,
+    "evening_summary_minute": 0,
+    "desktop_notify_level_up": True,
+    "desktop_notify_quests": True,
+
+    # Voice
     "voice_enabled": True,
     "voice_engine": "google",
     "vosk_model_path": "",
     "push_to_talk": False,
+
+    # Telegram Bot
     "telegram_enabled": False,
     "telegram_bot_token": "",
     "telegram_chat_id": "",
-    "twilio_enabled": False,
-    "twilio_account_sid": "",
-    "twilio_auth_token": "",
-    "twilio_from_number": "+14155238886",
-    "twilio_to_number": "",
-    "twilio_channel": "whatsapp",
-    "twilio_content_sid": "",
-    "whatsapp_enabled": False,
-    "whatsapp_phone": "",
-    "whatsapp_apikey": "",
+    "tg_notify_tasks": True,
+    "tg_notify_due_now": True,
+    "tg_notify_morning_summary": True,
+    "tg_notify_evening_summary": True,
+    "tg_notify_level_up": True,
+    "tg_notify_quests": True,
+    "tg_notify_high_prio": True,
+    "tg_silent_notifications": False,
 }
 
 # ---------------------------------------------------------------------------
@@ -1667,10 +1678,20 @@ class MainWindow(QMainWindow):
             self._notifier.schedule_reminder(updated_task)
 
         if res.get("leveled_up"):
+            self._notifier.notify_event(
+                f"🎖 ASCENSO: ¡Nivel {res['new_level']} alcanzado!",
+                f"Rango: {res['rank']['title']}. ¡Honor y gloria comandante!",
+                event_type="level_up",
+            )
             dlg = LevelUpDialog(res["new_level"], res["rank"]["title"], res["rank"]["icon"], self)
             dlg.exec()
         elif res.get("newly_completed_quests"):
             q_titles = ", ".join(q["title"] for q in res["newly_completed_quests"])
+            self._notifier.notify_event(
+                "🎯 Misión de Combate Cumplida",
+                f"Has completado: {q_titles}",
+                event_type="quest_completed",
+            )
             self._voice_status_lbl.setText(f"🎯 ¡Misión cumplida: {q_titles}!")
 
     @pyqtSlot(int)
@@ -1771,6 +1792,8 @@ class MainWindow(QMainWindow):
             daily_hour=new_settings.get("daily_summary_hour", 9),
             daily_minute=new_settings.get("daily_summary_minute", 0),
             reminder_minutes=new_settings.get("reminder_minutes", 30),
+            evening_hour=new_settings.get("evening_summary_hour", 21),
+            evening_minute=new_settings.get("evening_summary_minute", 0),
         )
 
         if self._voice_mgr:

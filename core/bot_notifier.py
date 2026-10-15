@@ -1,22 +1,21 @@
 """
 core/bot_notifier.py
 ====================
-Asynchronous notification dispatcher for Telegram and Twilio (WhatsApp & SMS).
+Asynchronous notification dispatcher exclusively for Telegram Bot.
 
 Features:
 - Telegram Bot API integration (pure standard library urllib, zero dependencies).
-- Twilio integration for WhatsApp and SMS delivery (HTTP Basic Auth, zero dependencies).
-- WhatsApp CallMeBot integration (legacy fallback).
+- Deep notification event filtering (reminders, due now, morning/evening summaries, level-ups, quests).
+- Silent notification delivery mode (disable_notification).
+- Automatic Chat ID detection via getUpdates.
 - Non-blocking asynchronous delivery via background worker threads.
-- Comprehensive connection testing methods with friendly error diagnosis.
+- Comprehensive connection testing with friendly diagnostic feedback.
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import re
 import threading
 import urllib.parse
 import urllib.request
@@ -28,7 +27,7 @@ USER_AGENT = "Taskmaster-Desktop/2.0"
 
 
 # ---------------------------------------------------------------------------
-# Telegram
+# Telegram API
 # ---------------------------------------------------------------------------
 
 def send_telegram_message(
@@ -36,6 +35,7 @@ def send_telegram_message(
     chat_id: str,
     text: str,
     parse_mode: str = "HTML",
+    disable_notification: bool = False,
     timeout: int = 10,
 ) -> Tuple[bool, str]:
     """
@@ -56,6 +56,7 @@ def send_telegram_message(
         "text": text,
         "parse_mode": parse_mode,
         "disable_web_page_preview": True,
+        "disable_notification": bool(disable_notification),
     }
 
     try:
@@ -95,7 +96,7 @@ def test_telegram(bot_token: str, chat_id: str) -> Tuple[bool, str]:
     """Send a friendly test message via Telegram to verify credentials."""
     msg = (
         "🤖 <b>¡Conexión exitosa con Taskmaster!</b>\n\n"
-        "Tus notificaciones y recordatorios de tareas llegarán por este canal. 🎯✨"
+        "Tus notificaciones, resúmenes y recordatorios tácticos llegarán por este canal. 🎯✨"
     )
     return send_telegram_message(bot_token, chat_id, msg, parse_mode="HTML")
 
@@ -134,253 +135,51 @@ def fetch_telegram_chat_id(bot_token: str, timeout: int = 10) -> Tuple[Optional[
 
 
 # ---------------------------------------------------------------------------
-# Twilio (WhatsApp & SMS)
-# ---------------------------------------------------------------------------
-
-def clean_phone_number(phone: str) -> str:
-    """Strip spaces, dashes, parentheses, keeping leading '+' if present."""
-    s = phone.strip()
-    has_plus = s.startswith("+")
-    digits = re.sub(r"\D", "", s)
-    return f"+{digits}" if has_plus or digits else digits
-
-
-def format_twilio_phone(phone: str, channel: str = "whatsapp") -> str:
-    """Format phone number with proper country code and optional whatsapp: prefix."""
-    raw = phone.strip()
-    is_wa = channel.lower() == "whatsapp"
-    if is_wa and raw.startswith("whatsapp:"):
-        return raw
-
-    # Ensure leading '+'
-    cleaned = clean_phone_number(raw)
-    if cleaned and not cleaned.startswith("+"):
-        cleaned = f"+{cleaned}"
-
-    return f"whatsapp:{cleaned}" if is_wa else cleaned
-
-
-def send_twilio_message(
-    account_sid: str,
-    auth_token: str,
-    from_number: str,
-    to_number: str,
-    body: str,
-    channel: str = "whatsapp",
-    content_sid: Optional[str] = None,
-    content_variables: Optional[Union[Dict[str, Any], str]] = None,
-    timeout: int = 15,
-) -> Tuple[bool, str]:
-    """
-    Send a message via Twilio REST API for WhatsApp or SMS.
-    Supports either standard text Body or pre-approved Content Templates (ContentSid).
-    Uses HTTP Basic Authentication with zero external dependencies.
-    """
-    sid = account_sid.strip()
-    token = auth_token.strip()
-
-    if not sid:
-        return False, "El Account SID de Twilio está vacío."
-    if not token:
-        return False, "El Auth Token de Twilio está vacío."
-    if not from_number.strip():
-        return False, "El número de origen Twilio (From) está vacío."
-    if not to_number.strip():
-        return False, "Tu número de destino (To) está vacío."
-
-    from_val = format_twilio_phone(from_number, channel)
-    to_val = format_twilio_phone(to_number, channel)
-
-    post_fields: Dict[str, str] = {
-        "From": from_val,
-        "To": to_val,
-    }
-
-    # If a pre-approved Content Template is specified (required for WhatsApp outside 24h / trials)
-    csid = (content_sid or "").strip()
-    if csid:
-        post_fields["ContentSid"] = csid
-        if content_variables:
-            if isinstance(content_variables, str):
-                post_fields["ContentVariables"] = content_variables
-            else:
-                post_fields["ContentVariables"] = json.dumps(content_variables)
-        else:
-            post_fields["ContentVariables"] = json.dumps({"1": body[:60]})
-    else:
-        post_fields["Body"] = body
-
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-    payload = urllib.parse.urlencode(post_fields).encode("utf-8")
-
-    auth_str = f"{sid}:{token}"
-    b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("ascii")
-
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={
-            "Authorization": f"Basic {b64_auth}",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": USER_AGENT,
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp_body = resp.read().decode("utf-8", errors="replace")
-            res_json = json.loads(resp_body)
-            msg_sid = res_json.get("sid", "")
-            status = res_json.get("status", "queued")
-            template_info = " (Plantilla HX)" if csid else ""
-            return True, f"Mensaje enviado con éxito vía Twilio ({channel.upper()}{template_info}). Estado: {status} (SID: {msg_sid[:10]}...)"
-    except urllib.error.HTTPError as err:
-        err_body = err.read().decode("utf-8", errors="replace")
-        logger.warning("Twilio HTTP error %d: %s", err.code, err_body)
-        try:
-            err_json = json.loads(err_body)
-            msg = err_json.get("message", err_body)
-            code = err_json.get("code", err.code)
-            return False, f"Twilio Error [{code}]: {msg}"
-        except Exception:
-            if err.code == 401:
-                return False, "Credenciales inválidas: Verifica tu Account SID y Auth Token de Twilio."
-            return False, f"Error HTTP {err.code} de Twilio: {err_body[:150]}"
-    except urllib.error.URLError as err:
-        logger.warning("Twilio network error: %s", err)
-        return False, f"Error de red al conectar con Twilio: {err.reason}"
-    except Exception as exc:
-        logger.error("Unexpected error sending Twilio message: %s", exc)
-        return False, f"Error inesperado: {exc}"
-
-
-def test_twilio(
-    account_sid: str,
-    auth_token: str,
-    from_number: str,
-    to_number: str,
-    channel: str = "whatsapp",
-    content_sid: Optional[str] = None,
-) -> Tuple[bool, str]:
-    """Send a test message via Twilio (WhatsApp or SMS) with optional Content Template support."""
-    channel_name = "WhatsApp" if channel.lower() == "whatsapp" else "SMS"
-    msg = (
-        "🤖 *¡Conexión exitosa con Taskmaster!*\n\n"
-        f"Tus notificaciones y recordatorios de tareas llegarán por Twilio ({channel_name}). 🎯✨"
-    )
-    c_vars = {"1": "123456"} if content_sid else None
-    return send_twilio_message(
-        account_sid, auth_token, from_number, to_number, msg,
-        channel=channel, content_sid=content_sid, content_variables=c_vars,
-    )
-
-
-# ---------------------------------------------------------------------------
-# WhatsApp (CallMeBot) - Legacy
-# ---------------------------------------------------------------------------
-
-def send_whatsapp_message(
-    phone: str,
-    apikey: str,
-    text: str,
-    timeout: int = 12,
-) -> Tuple[bool, str]:
-    """
-    Send a WhatsApp message using CallMeBot API (legacy fallback).
-    """
-    cleaned_phone = re.sub(r"\D", "", phone.strip())
-    key = apikey.strip()
-
-    if not cleaned_phone:
-        return False, "El número de teléfono está vacío o no contiene dígitos."
-    if not key:
-        return False, "La API Key de CallMeBot está vacía."
-
-    params = urllib.parse.urlencode({
-        "phone": cleaned_phone,
-        "text": text,
-        "apikey": key,
-    })
-    url = f"https://api.callmebot.com/whatsapp.php?{params}"
-
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": USER_AGENT},
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            if "Message queued" in body or "Message sent" in body or "success" in body.lower() or resp.status == 200:
-                if "invalid" in body.lower() or "error" in body.lower() or "not authorized" in body.lower():
-                    return False, f"CallMeBot respondió: {body[:150]}"
-                return True, "Mensaje enviado exitosamente a WhatsApp."
-            return False, f"Respuesta de CallMeBot: {body[:150]}"
-    except Exception as exc:
-        return False, f"Error CallMeBot: {exc}"
-
-
-def test_whatsapp(phone: str, apikey: str) -> Tuple[bool, str]:
-    """Send a friendly test message via WhatsApp to verify credentials."""
-    msg = (
-        "🤖 *¡Conexión exitosa con Taskmaster!*\n\n"
-        "Tus notificaciones y recordatorios de tareas llegarán a este WhatsApp. 🎯✨"
-    )
-    return send_whatsapp_message(phone, apikey, msg)
-
-
-# ---------------------------------------------------------------------------
-# Background Dispatcher
+# Background Dispatcher with Event Filtering
 # ---------------------------------------------------------------------------
 
 def send_bot_notification_async(
     title: str,
     message: str,
     settings: Dict[str, Any],
+    event_type: str = "general",
 ) -> None:
     """
-    Fire-and-forget worker that sends notifications to Telegram, Twilio (WhatsApp/SMS),
-    or CallMeBot in a background thread if enabled in settings.
+    Fire-and-forget worker that delivers notifications to Telegram in a background
+    thread according to user's granular event preferences.
     """
     def _worker():
-        # 1. Telegram
-        if settings.get("telegram_enabled"):
-            token = settings.get("telegram_bot_token", "")
-            cid = settings.get("telegram_chat_id", "")
-            if token and cid:
-                tg_text = f"<b>{title}</b>\n\n{message}"
-                ok, err = send_telegram_message(token, cid, tg_text, parse_mode="HTML")
-                if not ok:
-                    logger.warning("Background Telegram notification failed: %s", err)
+        if not settings.get("telegram_enabled"):
+            return
 
-        # 2. Twilio (WhatsApp / SMS)
-        if settings.get("twilio_enabled"):
-            sid = settings.get("twilio_account_sid", "")
-            token = settings.get("twilio_auth_token", "")
-            from_num = settings.get("twilio_from_number", "")
-            to_num = settings.get("twilio_to_number", "")
-            channel = settings.get("twilio_channel", "whatsapp")
-            content_sid = settings.get("twilio_content_sid", "")
-            if sid and token and from_num and to_num:
-                tw_text = f"*{title}*\n\n{message}"
-                c_vars = {"1": f"{title}: {message}"[:60]} if content_sid else None
-                ok, err = send_twilio_message(
-                    sid, token, from_num, to_num, tw_text,
-                    channel=channel, content_sid=content_sid, content_variables=c_vars,
-                )
-                if not ok:
-                    logger.warning("Background Twilio notification failed: %s", err)
+        token = settings.get("telegram_bot_token", "")
+        cid = settings.get("telegram_chat_id", "")
+        if not token or not cid:
+            return
 
-        # 3. CallMeBot (Legacy fallback if enabled)
-        elif settings.get("whatsapp_enabled"):
-            phone = settings.get("whatsapp_phone", "")
-            key = settings.get("whatsapp_apikey", "")
-            if phone and key:
-                wa_text = f"*{title}*\n\n{message}"
-                ok, err = send_whatsapp_message(phone, key, wa_text)
-                if not ok:
-                    logger.warning("Background WhatsApp notification failed: %s", err)
+        # Check granular event filters
+        if event_type == "reminder" and not settings.get("tg_notify_tasks", True):
+            return
+        if event_type == "due_now" and not settings.get("tg_notify_due_now", True):
+            return
+        if event_type == "morning_summary" and not settings.get("tg_notify_morning_summary", True):
+            return
+        if event_type == "evening_summary" and not settings.get("tg_notify_evening_summary", True):
+            return
+        if event_type == "level_up" and not settings.get("tg_notify_level_up", True):
+            return
+        if event_type == "quest_completed" and not settings.get("tg_notify_quests", True):
+            return
+        if event_type == "high_prio_done" and not settings.get("tg_notify_high_prio", True):
+            return
 
-    t = threading.Thread(target=_worker, name="BotNotificationWorker", daemon=True)
+        silent = bool(settings.get("tg_silent_notifications", False))
+        tg_text = f"<b>{title}</b>\n\n{message}"
+        ok, err = send_telegram_message(
+            token, cid, tg_text, parse_mode="HTML", disable_notification=silent
+        )
+        if not ok:
+            logger.warning("Background Telegram notification failed for event '%s': %s", event_type, err)
+
+    t = threading.Thread(target=_worker, name="TelegramNotificationWorker", daemon=True)
     t.start()

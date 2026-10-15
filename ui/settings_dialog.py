@@ -3,8 +3,8 @@ ui/settings_dialog.py
 =====================
 Settings dialog with five tabs:
   General        – theme toggle, language placeholder
-  Notificaciones – desktop notifications, reminder interval, daily summary time
-  Bots           – Telegram Bot & WhatsApp (CallMeBot) notification channels
+  Notificaciones – desktop notifications, duration, timing, morning & evening summaries
+  Bots (Telegram)– Telegram Bot notification channel & granular event filters
   Voz            – engine selection, Vosk model path, push-to-talk toggle
   Categorías     – list view with add/rename/delete and color picker
 """
@@ -23,12 +23,12 @@ from PyQt6.QtWidgets import (
     QScrollArea,
 )
 
-from core.bot_notifier import test_telegram, test_twilio, test_whatsapp, fetch_telegram_chat_id
+from core.bot_notifier import test_telegram, fetch_telegram_chat_id
 from core.i18n import tr, get_language
 
 
 class BotTestWorker(QThread):
-    """Worker thread to run Telegram / WhatsApp test calls without blocking UI."""
+    """Worker thread to run Telegram bot test calls without blocking UI."""
     finished_result = pyqtSignal(object, str)
 
     def __init__(self, test_fn, *args):
@@ -147,41 +147,89 @@ class SettingsDialog(QDialog):
     # ---- Notifications tab ----
 
     def _build_notifications_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: #0D1015; }")
+
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         self._notif_enabled_cb = QCheckBox("Habilitar notificaciones locales de escritorio")
+        self._notif_enabled_cb.setStyleSheet("font-weight: 700; color: #5EEAD4; font-size: 13px;")
         layout.addWidget(self._notif_enabled_cb)
 
-        grp = QGroupBox("Recordatorios de tareas")
-        grp_form = QFormLayout(grp)
-        grp_form.setSpacing(12)
+        # 1. Timing & Reminders
+        grp_timing = QGroupBox("Recordatorios y Avisos de Tareas")
+        grp_timing_form = QFormLayout(grp_timing)
+        grp_timing_form.setSpacing(12)
 
         self._reminder_spin = QSpinBox()
         self._reminder_spin.setRange(1, 120)
-        self._reminder_spin.setSuffix(" min antes")
-        grp_form.addRow("Avisar con anticipación:", self._reminder_spin)
+        self._reminder_spin.setSuffix(" min")
+        grp_timing_form.addRow("Aviso de anticipación:", self._reminder_spin)
 
-        layout.addWidget(grp)
+        self._duration_spin = QSpinBox()
+        self._duration_spin.setRange(2, 60)
+        self._duration_spin.setSuffix(" seg")
+        grp_timing_form.addRow("Duración de alerta en pantalla:", self._duration_spin)
 
-        grp2 = QGroupBox("Resumen diario")
-        grp2_form = QFormLayout(grp2)
-        grp2_form.setSpacing(12)
+        self._due_now_cb = QCheckBox("Avisar en el momento exacto del vencimiento")
+        grp_timing_form.addRow(self._due_now_cb)
 
-        self._summary_enabled_cb = QCheckBox("Enviar resumen diario de tareas matutino")
-        grp2_form.addRow(self._summary_enabled_cb)
+        self._overdue_cb = QCheckBox("Avisar periódicamente cuando una tarea esté vencida")
+        grp_timing_form.addRow(self._overdue_cb)
+
+        layout.addWidget(grp_timing)
+
+        # 2. Daily Summaries
+        grp_summaries = QGroupBox("Resúmenes Operativos Diarios")
+        grp_summaries_layout = QVBoxLayout(grp_summaries)
+        grp_summaries_layout.setSpacing(12)
+
+        # Morning
+        morning_row = QHBoxLayout()
+        self._summary_enabled_cb = QCheckBox("Resumen matutino diario:")
+        self._summary_enabled_cb.setStyleSheet("font-weight: 600;")
+        morning_row.addWidget(self._summary_enabled_cb, 1)
 
         self._summary_time_edit = QTimeEdit()
         self._summary_time_edit.setDisplayFormat("HH:mm")
-        grp2_form.addRow("Hora del resumen:", self._summary_time_edit)
+        morning_row.addWidget(self._summary_time_edit)
+        grp_summaries_layout.addLayout(morning_row)
 
-        layout.addWidget(grp2)
+        # Evening
+        evening_row = QHBoxLayout()
+        self._evening_enabled_cb = QCheckBox("Balance operativo nocturno:")
+        self._evening_enabled_cb.setStyleSheet("font-weight: 600;")
+        evening_row.addWidget(self._evening_enabled_cb, 1)
+
+        self._evening_time_edit = QTimeEdit()
+        self._evening_time_edit.setDisplayFormat("HH:mm")
+        evening_row.addWidget(self._evening_time_edit)
+        grp_summaries_layout.addLayout(evening_row)
+
+        layout.addWidget(grp_summaries)
+
+        # 3. Gamification Desktop Alerts
+        grp_game = QGroupBox("Alertas de Gamificación en Pantalla")
+        grp_game_layout = QVBoxLayout(grp_game)
+        grp_game_layout.setSpacing(10)
+
+        self._desktop_level_up_cb = QCheckBox("Notificar ascensos de rango y nivel militar (Level Up)")
+        grp_game_layout.addWidget(self._desktop_level_up_cb)
+
+        self._desktop_quests_cb = QCheckBox("Notificar misiones y directivas de combate completadas")
+        grp_game_layout.addWidget(self._desktop_quests_cb)
+
+        layout.addWidget(grp_game)
+
         layout.addStretch()
-        return w
+        scroll.setWidget(w)
+        return scroll
 
-    # ---- Bots tab (Telegram & WhatsApp) ----
+    # ---- Bots tab (Telegram Only) ----
 
     def _build_bots_tab(self) -> QWidget:
         scroll = QScrollArea()
@@ -191,27 +239,25 @@ class SettingsDialog(QDialog):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(20)
+        layout.setSpacing(18)
 
-        # -------------------------------------------------------------
-        # 1. Telegram Section
-        # -------------------------------------------------------------
-        tg_box = QGroupBox("Telegram Bot")
+        # Master Switch
+        self._tg_enabled_cb = QCheckBox("Activar notificaciones y alertas por Telegram")
+        self._tg_enabled_cb.setStyleSheet("font-weight: 700; color: #38BDF8; font-size: 13px;")
+        layout.addWidget(self._tg_enabled_cb)
+
+        # 1. Credentials Section
+        tg_box = QGroupBox("Credenciales del Bot de Telegram")
         tg_layout = QVBoxLayout(tg_box)
         tg_layout.setSpacing(12)
         tg_layout.setContentsMargins(16, 16, 16, 16)
 
-        self._tg_enabled_cb = QCheckBox("Activar alertas y recordatorios por Telegram")
-        self._tg_enabled_cb.setStyleSheet("font-weight: 700; color: #5EEAD4;")
-        tg_layout.addWidget(self._tg_enabled_cb)
-
-        # Telegram Guide Banner
         tg_guide = QLabel(
-            "<b>Pasos para configurar Telegram en 1 minuto:</b><br>"
+            "<b>Pasos para conectar tu Telegram en 1 minuto:</b><br>"
             "1. Abre Telegram y escribe a <b>@BotFather</b>.<br>"
-            "2. Envía <code>/newbot</code>, dale un nombre y copia el <b>Bot Token</b> abajo.<br>"
-            "3. Abre tu bot recién creado en Telegram y envíale <code>/start</code>.<br>"
-            "4. Haz clic en <b>🔍 Detectar ID</b> para obtener tu Chat ID automáticamente (o usa <b>@userinfobot</b>)."
+            "2. Envía <code>/newbot</code>, asígnale un nombre y copia el <b>Bot Token</b> abajo.<br>"
+            "3. Entra al chat de tu nuevo bot y pulsa <b>Iniciar</b> (o envía <code>/start</code>).<br>"
+            "4. Haz clic en <b>🔍 Detectar ID</b> para vincular tu Chat ID al instante."
         )
         tg_guide.setWordWrap(True)
         tg_guide.setStyleSheet(
@@ -243,10 +289,9 @@ class SettingsDialog(QDialog):
         chat_id_row.addWidget(self._tg_detect_btn)
 
         tg_form.addRow("Chat ID:", chat_id_row)
-
         tg_layout.addLayout(tg_form)
 
-        # Test Telegram Button & Status
+        # Test Row
         tg_action_row = QHBoxLayout()
         self._tg_test_btn = QPushButton("✈ Enviar prueba a Telegram")
         self._tg_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -265,87 +310,49 @@ class SettingsDialog(QDialog):
         tg_layout.addLayout(tg_action_row)
         layout.addWidget(tg_box)
 
-        # -------------------------------------------------------------
-        # -------------------------------------------------------------
-        # 2. Twilio Section (WhatsApp & SMS)
-        # -------------------------------------------------------------
-        tw_box = QGroupBox("Twilio (WhatsApp & SMS)")
-        tw_layout = QVBoxLayout(tw_box)
-        tw_layout.setSpacing(12)
-        tw_layout.setContentsMargins(16, 16, 16, 16)
+        # 2. Granular Event Customization
+        events_box = QGroupBox("Personalización: ¿Qué eventos enviar a Telegram?")
+        events_layout = QVBoxLayout(events_box)
+        events_layout.setSpacing(10)
+        events_layout.setContentsMargins(16, 16, 16, 16)
 
-        self._tw_enabled_cb = QCheckBox("Activar alertas y recordatorios por Twilio (WhatsApp / SMS)")
-        self._tw_enabled_cb.setStyleSheet("font-weight: 700; color: #FB7185;")
-        tw_layout.addWidget(self._tw_enabled_cb)
+        events_hint = QLabel("Filtra de manera granular las notificaciones que deseas recibir en tu móvil:")
+        events_hint.setStyleSheet("color: #94A3B8; font-size: 11px; margin-bottom: 4px;")
+        events_layout.addWidget(events_hint)
 
-        # Twilio Guide Banner
-        tw_guide = QLabel(
-            "<b>Configuración de Twilio (WhatsApp & SMS):</b><br>"
-            "1. Obtén tu <b>Account SID</b> y <b>Auth Token</b> desde tu consola en <b>console.twilio.com</b>.<br>"
-            "2. <b>WhatsApp Sandbox:</b> Ve a <i>Develop > Messaging > Try SMS / Try WhatsApp</i>, usa el número asignado (ej: <code>+14155238886</code>) y envía el mensaje de unión (ej: <i>join palabra</i>) desde tu WhatsApp.<br>"
-            "3. <b>Plantillas WhatsApp (Trial / Fuera de ventana 24h):</b> Si WhatsApp rechaza texto libre, ingresa el <b>Content SID</b> preaprobado de Twilio (ej: <code>HXb5b62575e6e4ff6129ad7c8efe1f983e</code> de <i>Content Template Builder</i>).<br>"
-            "4. <b>SMS:</b> Selecciona el canal SMS e ingresa tu número remitente de Twilio.<br>"
-            "5. Ingresa tu número de teléfono con código de país (ej: <code>+54911...</code> o <code>+34...</code>)."
-        )
-        tw_guide.setWordWrap(True)
-        tw_guide.setStyleSheet(
-            "background: #131822; color: #9AA4B5; border: 1px solid #1E2838; border-radius: 8px; padding: 10px; font-size: 11px;"
-        )
-        tw_layout.addWidget(tw_guide)
+        self._tg_notify_tasks_cb = QCheckBox("Recordatorios de tareas (aviso anticipado)")
+        events_layout.addWidget(self._tg_notify_tasks_cb)
 
-        tw_form = QFormLayout()
-        tw_form.setSpacing(10)
+        self._tg_notify_due_now_cb = QCheckBox("Alerta en el momento exacto del vencimiento")
+        events_layout.addWidget(self._tg_notify_due_now_cb)
 
-        self._tw_channel_combo = QComboBox()
-        self._tw_channel_combo.addItems(["WhatsApp", "SMS"])
-        tw_form.addRow("Canal:", self._tw_channel_combo)
+        self._tg_notify_high_prio_cb = QCheckBox("Filtrar tareas: solo enviar si la prioridad es ALTA (Urgente)")
+        events_layout.addWidget(self._tg_notify_high_prio_cb)
 
-        self._tw_sid_edit = QLineEdit()
-        self._tw_sid_edit.setPlaceholderText("Tu Account SID (empieza con AC...)")
-        tw_form.addRow("Account SID:", self._tw_sid_edit)
+        self._tg_notify_morning_cb = QCheckBox("Resumen de operaciones matutino")
+        events_layout.addWidget(self._tg_notify_morning_cb)
 
-        self._tw_token_edit = QLineEdit()
-        self._tw_token_edit.setPlaceholderText("Tu Auth Token de Twilio")
-        self._tw_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        tw_form.addRow("Auth Token:", self._tw_token_edit)
+        self._tg_notify_evening_cb = QCheckBox("Balance operativo nocturno")
+        events_layout.addWidget(self._tg_notify_evening_cb)
 
-        self._tw_from_edit = QLineEdit()
-        self._tw_from_edit.setPlaceholderText("Ej: +14155238886 (WhatsApp Sandbox) o tu número Twilio")
-        tw_form.addRow("De (Twilio Number):", self._tw_from_edit)
+        self._tg_notify_level_up_cb = QCheckBox("Ascensos de nivel militar (Level Up) y XP")
+        events_layout.addWidget(self._tg_notify_level_up_cb)
 
-        self._tw_to_edit = QLineEdit()
-        self._tw_to_edit.setPlaceholderText("Ej: +34612345678 o +54911...")
-        tw_form.addRow("Para (Tu Teléfono):", self._tw_to_edit)
+        self._tg_notify_quests_cb = QCheckBox("Misiones y directivas de combate completadas")
+        events_layout.addWidget(self._tg_notify_quests_cb)
 
-        self._tw_contentsid_edit = QLineEdit()
-        self._tw_contentsid_edit.setPlaceholderText("Dejar en blanco para texto libre (o plantilla HX...)")
-        tw_form.addRow("Content SID:", self._tw_contentsid_edit)
+        layout.addWidget(events_box)
 
-        tw_csid_hint = QLabel("💡 Si ya enviaste «Hola» a Twilio por WhatsApp, deja Content SID en blanco para enviar texto plano libre directo.")
-        tw_csid_hint.setWordWrap(True)
-        tw_csid_hint.setStyleSheet("color: #64748B; font-size: 10px; padding-left: 2px;")
-        tw_form.addRow("", tw_csid_hint)
+        # 3. Delivery Options
+        delivery_box = QGroupBox("Opciones de Entrega")
+        delivery_layout = QVBoxLayout(delivery_box)
+        delivery_layout.setSpacing(10)
+        delivery_layout.setContentsMargins(16, 16, 16, 16)
 
-        tw_layout.addLayout(tw_form)
+        self._tg_silent_cb = QCheckBox("🔕 Modo silencioso (enviar sin sonido de notificación al móvil)")
+        delivery_layout.addWidget(self._tg_silent_cb)
 
-        # Test Twilio Button & Status
-        tw_action_row = QHBoxLayout()
-        self._tw_test_btn = QPushButton("📱 Enviar prueba con Twilio")
-        self._tw_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._tw_test_btn.setStyleSheet(
-            "QPushButton { background: #3B1219; color: #FB7185; border: 1px solid #E11D48; font-weight: 600; border-radius: 6px; padding: 6px 16px; }"
-            "QPushButton:hover { background: #E11D48; color: #fff; }"
-        )
-        self._tw_test_btn.clicked.connect(self._test_twilio)
-        tw_action_row.addWidget(self._tw_test_btn)
-
-        self._tw_status_lbl = QLabel("")
-        self._tw_status_lbl.setWordWrap(True)
-        self._tw_status_lbl.setStyleSheet("font-size: 11px;")
-        tw_action_row.addWidget(self._tw_status_lbl, 1)
-
-        tw_layout.addLayout(tw_action_row)
-        layout.addWidget(tw_box)
+        layout.addWidget(delivery_box)
 
         layout.addStretch()
         scroll.setWidget(w)
@@ -405,39 +412,6 @@ class SettingsDialog(QDialog):
         else:
             self._tg_status_lbl.setText(f"✕ {msg}")
             self._tg_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
-
-    def _test_twilio(self) -> None:
-        sid = self._tw_sid_edit.text().strip()
-        token = self._tw_token_edit.text().strip()
-        from_num = self._tw_from_edit.text().strip()
-        to_num = self._tw_to_edit.text().strip()
-        channel = self._tw_channel_combo.currentText().lower()
-        contentsid = self._tw_contentsid_edit.text().strip() or None
-
-        if not sid or not token or not from_num or not to_num:
-            self._tw_status_lbl.setText("⚠ Completa Account SID, Auth Token, From y To de Twilio.")
-            self._tw_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
-            return
-
-        self._tw_test_btn.setEnabled(False)
-        self._tw_test_btn.setText("Enviando...")
-        template_tag = " [Plantilla HX]" if contentsid else ""
-        self._tw_status_lbl.setText(f"Conectando con Twilio ({channel.upper()}{template_tag})...")
-        self._tw_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
-
-        self._active_worker = BotTestWorker(test_twilio, sid, token, from_num, to_num, channel, contentsid)
-        self._active_worker.finished_result.connect(self._on_twilio_test_result)
-        self._active_worker.start()
-
-    def _on_twilio_test_result(self, success: Any, msg: str) -> None:
-        self._tw_test_btn.setEnabled(True)
-        self._tw_test_btn.setText("📱 Enviar prueba con Twilio")
-        if success:
-            self._tw_status_lbl.setText(f"✔ {msg}")
-            self._tw_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
-        else:
-            self._tw_status_lbl.setText(f"✕ {msg}")
-            self._tw_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
 
     # ---- Voice tab ----
 
@@ -599,28 +573,39 @@ class SettingsDialog(QDialog):
         self._theme_combo.setCurrentIndex(0 if s.get("theme", "dark") == "dark" else 1)
         self._lang_combo.setCurrentIndex(1 if s.get("language", "es") == "en" else 0)
 
-        # Notifications
+        # Notifications (Desktop)
         self._notif_enabled_cb.setChecked(s.get("notifications_enabled", True))
         self._reminder_spin.setValue(s.get("reminder_minutes", 30))
+        self._duration_spin.setValue(s.get("notification_duration", 10))
+        self._due_now_cb.setChecked(s.get("notify_on_due_time", True))
+        self._overdue_cb.setChecked(s.get("notify_overdue", False))
+
         self._summary_enabled_cb.setChecked(s.get("daily_summary_enabled", True))
         h = s.get("daily_summary_hour", 9)
         m = s.get("daily_summary_minute", 0)
         self._summary_time_edit.setTime(QTime(h, m))
 
-        # Bots
+        self._evening_enabled_cb.setChecked(s.get("evening_summary_enabled", True))
+        eh = s.get("evening_summary_hour", 21)
+        em = s.get("evening_summary_minute", 0)
+        self._evening_time_edit.setTime(QTime(eh, em))
+
+        self._desktop_level_up_cb.setChecked(s.get("desktop_notify_level_up", True))
+        self._desktop_quests_cb.setChecked(s.get("desktop_notify_quests", True))
+
+        # Telegram Bot
         self._tg_enabled_cb.setChecked(s.get("telegram_enabled", False))
         self._tg_token_edit.setText(s.get("telegram_bot_token", ""))
         self._tg_chat_id_edit.setText(s.get("telegram_chat_id", ""))
 
-        # Twilio
-        self._tw_enabled_cb.setChecked(s.get("twilio_enabled", False))
-        channel = s.get("twilio_channel", "whatsapp").lower()
-        self._tw_channel_combo.setCurrentIndex(1 if channel == "sms" else 0)
-        self._tw_sid_edit.setText(s.get("twilio_account_sid", ""))
-        self._tw_token_edit.setText(s.get("twilio_auth_token", ""))
-        self._tw_from_edit.setText(s.get("twilio_from_number", "+14155238886"))
-        self._tw_to_edit.setText(s.get("twilio_to_number", ""))
-        self._tw_contentsid_edit.setText(s.get("twilio_content_sid", ""))
+        self._tg_notify_tasks_cb.setChecked(s.get("tg_notify_tasks", True))
+        self._tg_notify_due_now_cb.setChecked(s.get("tg_notify_due_now", True))
+        self._tg_notify_high_prio_cb.setChecked(s.get("tg_notify_high_prio", True))
+        self._tg_notify_morning_cb.setChecked(s.get("tg_notify_morning_summary", True))
+        self._tg_notify_evening_cb.setChecked(s.get("tg_notify_evening_summary", True))
+        self._tg_notify_level_up_cb.setChecked(s.get("tg_notify_level_up", True))
+        self._tg_notify_quests_cb.setChecked(s.get("tg_notify_quests", True))
+        self._tg_silent_cb.setChecked(s.get("tg_silent_notifications", False))
 
         # Voice
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
@@ -630,29 +615,45 @@ class SettingsDialog(QDialog):
         self._ptt_cb.setChecked(s.get("push_to_talk", False))
 
     def _save(self) -> None:
-        t = self._summary_time_edit.time()
+        t_morning = self._summary_time_edit.time()
+        t_evening = self._evening_time_edit.time()
         self._settings.update({
-            "theme":                 "dark" if self._theme_combo.currentIndex() == 0 else "light",
-            "language":              "en" if self._lang_combo.currentIndex() == 1 else "es",
-            "notifications_enabled": self._notif_enabled_cb.isChecked(),
-            "reminder_minutes":      self._reminder_spin.value(),
-            "daily_summary_enabled": self._summary_enabled_cb.isChecked(),
-            "daily_summary_hour":    t.hour(),
-            "daily_summary_minute":  t.minute(),
-            "telegram_enabled":      self._tg_enabled_cb.isChecked(),
-            "telegram_bot_token":    self._tg_token_edit.text().strip(),
-            "telegram_chat_id":      self._tg_chat_id_edit.text().strip(),
-            "twilio_enabled":        self._tw_enabled_cb.isChecked(),
-            "twilio_channel":        self._tw_channel_combo.currentText().lower(),
-            "twilio_account_sid":    self._tw_sid_edit.text().strip(),
-            "twilio_auth_token":     self._tw_token_edit.text().strip(),
-            "twilio_from_number":    self._tw_from_edit.text().strip(),
-            "twilio_to_number":      self._tw_to_edit.text().strip(),
-            "twilio_content_sid":    self._tw_contentsid_edit.text().strip(),
-            "voice_enabled":         self._voice_enabled_cb.isChecked(),
-            "voice_engine":          "google" if self._engine_combo.currentIndex() == 0 else "vosk",
-            "vosk_model_path":       self._vosk_path_edit.text().strip(),
-            "push_to_talk":          self._ptt_cb.isChecked(),
+            "theme":                     "dark" if self._theme_combo.currentIndex() == 0 else "light",
+            "language":                  "en" if self._lang_combo.currentIndex() == 1 else "es",
+
+            # Desktop Notifications
+            "notifications_enabled":     self._notif_enabled_cb.isChecked(),
+            "reminder_minutes":          self._reminder_spin.value(),
+            "notification_duration":     self._duration_spin.value(),
+            "notify_on_due_time":        self._due_now_cb.isChecked(),
+            "notify_overdue":            self._overdue_cb.isChecked(),
+            "daily_summary_enabled":     self._summary_enabled_cb.isChecked(),
+            "daily_summary_hour":        t_morning.hour(),
+            "daily_summary_minute":      t_morning.minute(),
+            "evening_summary_enabled":   self._evening_enabled_cb.isChecked(),
+            "evening_summary_hour":      t_evening.hour(),
+            "evening_summary_minute":    t_evening.minute(),
+            "desktop_notify_level_up":   self._desktop_level_up_cb.isChecked(),
+            "desktop_notify_quests":     self._desktop_quests_cb.isChecked(),
+
+            # Telegram Bot
+            "telegram_enabled":          self._tg_enabled_cb.isChecked(),
+            "telegram_bot_token":        self._tg_token_edit.text().strip(),
+            "telegram_chat_id":          self._tg_chat_id_edit.text().strip(),
+            "tg_notify_tasks":           self._tg_notify_tasks_cb.isChecked(),
+            "tg_notify_due_now":         self._tg_notify_due_now_cb.isChecked(),
+            "tg_notify_high_prio":       self._tg_notify_high_prio_cb.isChecked(),
+            "tg_notify_morning_summary": self._tg_notify_morning_cb.isChecked(),
+            "tg_notify_evening_summary": self._tg_notify_evening_cb.isChecked(),
+            "tg_notify_level_up":        self._tg_notify_level_up_cb.isChecked(),
+            "tg_notify_quests":          self._tg_notify_quests_cb.isChecked(),
+            "tg_silent_notifications":   self._tg_silent_cb.isChecked(),
+
+            # Voice
+            "voice_enabled":             self._voice_enabled_cb.isChecked(),
+            "voice_engine":              "google" if self._engine_combo.currentIndex() == 0 else "vosk",
+            "vosk_model_path":           self._vosk_path_edit.text().strip(),
+            "push_to_talk":              self._ptt_cb.isChecked(),
         })
         self.settings_saved.emit(self._settings)
         self.accept()
