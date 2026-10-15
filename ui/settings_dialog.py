@@ -23,13 +23,13 @@ from PyQt6.QtWidgets import (
     QScrollArea,
 )
 
-from core.bot_notifier import test_telegram, test_whatsapp
+from core.bot_notifier import test_telegram, test_twilio, test_whatsapp, fetch_telegram_chat_id
 from core.i18n import tr, get_language
 
 
 class BotTestWorker(QThread):
     """Worker thread to run Telegram / WhatsApp test calls without blocking UI."""
-    finished_result = pyqtSignal(bool, str)
+    finished_result = pyqtSignal(object, str)
 
     def __init__(self, test_fn, *args):
         super().__init__()
@@ -38,10 +38,13 @@ class BotTestWorker(QThread):
 
     def run(self):
         try:
-            ok, msg = self._fn(*self._args)
-            self.finished_result.emit(ok, msg)
+            res = self._fn(*self._args)
+            if isinstance(res, tuple) and len(res) == 2:
+                self.finished_result.emit(res[0], res[1])
+            else:
+                self.finished_result.emit(res, "")
         except Exception as exc:
-            self.finished_result.emit(False, str(exc))
+            self.finished_result.emit(None, str(exc))
 
 
 class SettingsDialog(QDialog):
@@ -206,9 +209,9 @@ class SettingsDialog(QDialog):
         tg_guide = QLabel(
             "<b>Pasos para configurar Telegram en 1 minuto:</b><br>"
             "1. Abre Telegram y escribe a <b>@BotFather</b>.<br>"
-            "2. Envía <code>/newbot</code>, dale un nombre y copia el <b>Token</b>.<br>"
-            "3. Dale a <b>INICIAR (/start)</b> a tu bot recién creado.<br>"
-            "4. Averigua tu <b>Chat ID</b> escribiéndole <code>/start</code> a <b>@userinfobot</b> y pégalo abajo."
+            "2. Envía <code>/newbot</code>, dale un nombre y copia el <b>Bot Token</b> abajo.<br>"
+            "3. Abre tu bot recién creado en Telegram y envíale <code>/start</code>.<br>"
+            "4. Haz clic en <b>🔍 Detectar ID</b> para obtener tu Chat ID automáticamente (o usa <b>@userinfobot</b>)."
         )
         tg_guide.setWordWrap(True)
         tg_guide.setStyleSheet(
@@ -223,9 +226,23 @@ class SettingsDialog(QDialog):
         self._tg_token_edit.setPlaceholderText("Ej: 7123456789:AAFlPzM8K4_...")
         tg_form.addRow("Bot Token:", self._tg_token_edit)
 
+        chat_id_row = QHBoxLayout()
+        chat_id_row.setSpacing(8)
         self._tg_chat_id_edit = QLineEdit()
         self._tg_chat_id_edit.setPlaceholderText("Ej: 123456789")
-        tg_form.addRow("Chat ID:", self._tg_chat_id_edit)
+        chat_id_row.addWidget(self._tg_chat_id_edit, 1)
+
+        self._tg_detect_btn = QPushButton("🔍 Detectar ID")
+        self._tg_detect_btn.setToolTip("Detecta automáticamente tu Chat ID si ya le enviaste /start a tu bot")
+        self._tg_detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tg_detect_btn.setStyleSheet(
+            "QPushButton { background: #132738; color: #38BDF8; border: 1px solid #0369A1; font-weight: 600; border-radius: 6px; padding: 5px 12px; }"
+            "QPushButton:hover { background: #0284C7; color: #fff; }"
+        )
+        self._tg_detect_btn.clicked.connect(self._detect_telegram_chat_id)
+        chat_id_row.addWidget(self._tg_detect_btn)
+
+        tg_form.addRow("Chat ID:", chat_id_row)
 
         tg_layout.addLayout(tg_form)
 
@@ -249,65 +266,107 @@ class SettingsDialog(QDialog):
         layout.addWidget(tg_box)
 
         # -------------------------------------------------------------
-        # 2. WhatsApp Section (CallMeBot)
         # -------------------------------------------------------------
-        wa_box = QGroupBox("WhatsApp (CallMeBot)")
-        wa_layout = QVBoxLayout(wa_box)
-        wa_layout.setSpacing(12)
-        wa_layout.setContentsMargins(16, 16, 16, 16)
+        # 2. Twilio Section (WhatsApp & SMS)
+        # -------------------------------------------------------------
+        tw_box = QGroupBox("Twilio (WhatsApp & SMS)")
+        tw_layout = QVBoxLayout(tw_box)
+        tw_layout.setSpacing(12)
+        tw_layout.setContentsMargins(16, 16, 16, 16)
 
-        self._wa_enabled_cb = QCheckBox("Activar alertas y recordatorios por WhatsApp (CallMeBot)")
-        self._wa_enabled_cb.setStyleSheet("font-weight: 700; color: #34D399;")
-        wa_layout.addWidget(self._wa_enabled_cb)
+        self._tw_enabled_cb = QCheckBox("Activar alertas y recordatorios por Twilio (WhatsApp / SMS)")
+        self._tw_enabled_cb.setStyleSheet("font-weight: 700; color: #FB7185;")
+        tw_layout.addWidget(self._tw_enabled_cb)
 
-        # WhatsApp Guide Banner
-        wa_guide = QLabel(
-            "<b>Pasos para configurar WhatsApp gratis con CallMeBot:</b><br>"
-            "1. Agrega a contactos el teléfono de CallMeBot: <b>+34 644 59 71 82</b> (o el de su web <i>callmebot.com</i>).<br>"
-            "2. Envíale por WhatsApp el mensaje exacto: <code>I allow callmebot to send me messages</code><br>"
-            "3. Recibirás tu <b>API Key</b> de respuesta en segundos."
+        # Twilio Guide Banner
+        tw_guide = QLabel(
+            "<b>Configuración de Twilio (WhatsApp & SMS):</b><br>"
+            "1. Obtén tu <b>Account SID</b> y <b>Auth Token</b> desde tu consola en <b>console.twilio.com</b>.<br>"
+            "2. <b>WhatsApp Sandbox:</b> Ve a <i>Develop > Messaging > Try SMS / Try WhatsApp</i>, usa el número asignado (ej: <code>+14155238886</code>) y envía el mensaje de unión (ej: <i>join word-here</i>) desde tu WhatsApp.<br>"
+            "3. <b>SMS:</b> Selecciona el canal SMS e ingresa tu número remitente de Twilio.<br>"
+            "4. Ingresa tu número de teléfono con código de país (ej: <code>+54911...</code> o <code>+34...</code>)."
         )
-        wa_guide.setWordWrap(True)
-        wa_guide.setStyleSheet(
+        tw_guide.setWordWrap(True)
+        tw_guide.setStyleSheet(
             "background: #131822; color: #9AA4B5; border: 1px solid #1E2838; border-radius: 8px; padding: 10px; font-size: 11px;"
         )
-        wa_layout.addWidget(wa_guide)
+        tw_layout.addWidget(tw_guide)
 
-        wa_form = QFormLayout()
-        wa_form.setSpacing(10)
+        tw_form = QFormLayout()
+        tw_form.setSpacing(10)
 
-        self._wa_phone_edit = QLineEdit()
-        self._wa_phone_edit.setPlaceholderText("Ej: +34 612 345 678 o 54911...")
-        wa_form.addRow("Tu Teléfono:", self._wa_phone_edit)
+        self._tw_channel_combo = QComboBox()
+        self._tw_channel_combo.addItems(["WhatsApp", "SMS"])
+        tw_form.addRow("Canal:", self._tw_channel_combo)
 
-        self._wa_apikey_edit = QLineEdit()
-        self._wa_apikey_edit.setPlaceholderText("Ej: 9876543")
-        wa_form.addRow("API Key:", self._wa_apikey_edit)
+        self._tw_sid_edit = QLineEdit()
+        self._tw_sid_edit.setPlaceholderText("Tu Account SID (empieza con AC...)")
+        tw_form.addRow("Account SID:", self._tw_sid_edit)
 
-        wa_layout.addLayout(wa_form)
+        self._tw_token_edit = QLineEdit()
+        self._tw_token_edit.setPlaceholderText("Tu Auth Token de Twilio")
+        self._tw_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        tw_form.addRow("Auth Token:", self._tw_token_edit)
 
-        # Test WhatsApp Button & Status
-        wa_action_row = QHBoxLayout()
-        self._wa_test_btn = QPushButton("💬 Enviar prueba a WhatsApp")
-        self._wa_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._wa_test_btn.setStyleSheet(
-            "QPushButton { background: #064E3B; color: #34D399; border: 1px solid #059669; font-weight: 600; border-radius: 6px; padding: 6px 16px; }"
-            "QPushButton:hover { background: #047857; color: #fff; }"
+        self._tw_from_edit = QLineEdit()
+        self._tw_from_edit.setPlaceholderText("Ej: +14155238886 (WhatsApp Sandbox) o tu número Twilio")
+        tw_form.addRow("De (Twilio Number):", self._tw_from_edit)
+
+        self._tw_to_edit = QLineEdit()
+        self._tw_to_edit.setPlaceholderText("Ej: +34612345678 o +54911...")
+        tw_form.addRow("Para (Tu Teléfono):", self._tw_to_edit)
+
+        tw_layout.addLayout(tw_form)
+
+        # Test Twilio Button & Status
+        tw_action_row = QHBoxLayout()
+        self._tw_test_btn = QPushButton("📱 Enviar prueba con Twilio")
+        self._tw_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tw_test_btn.setStyleSheet(
+            "QPushButton { background: #3B1219; color: #FB7185; border: 1px solid #E11D48; font-weight: 600; border-radius: 6px; padding: 6px 16px; }"
+            "QPushButton:hover { background: #E11D48; color: #fff; }"
         )
-        self._wa_test_btn.clicked.connect(self._test_whatsapp)
-        wa_action_row.addWidget(self._wa_test_btn)
+        self._tw_test_btn.clicked.connect(self._test_twilio)
+        tw_action_row.addWidget(self._tw_test_btn)
 
-        self._wa_status_lbl = QLabel("")
-        self._wa_status_lbl.setWordWrap(True)
-        self._wa_status_lbl.setStyleSheet("font-size: 11px;")
-        wa_action_row.addWidget(self._wa_status_lbl, 1)
+        self._tw_status_lbl = QLabel("")
+        self._tw_status_lbl.setWordWrap(True)
+        self._tw_status_lbl.setStyleSheet("font-size: 11px;")
+        tw_action_row.addWidget(self._tw_status_lbl, 1)
 
-        wa_layout.addLayout(wa_action_row)
-        layout.addWidget(wa_box)
+        tw_layout.addLayout(tw_action_row)
+        layout.addWidget(tw_box)
 
         layout.addStretch()
         scroll.setWidget(w)
         return scroll
+
+    def _detect_telegram_chat_id(self) -> None:
+        token = self._tg_token_edit.text().strip()
+        if not token:
+            self._tg_status_lbl.setText("⚠ Pega primero el Bot Token que te dio @BotFather.")
+            self._tg_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
+            return
+
+        self._tg_detect_btn.setEnabled(False)
+        self._tg_detect_btn.setText("Buscando...")
+        self._tg_status_lbl.setText("Consultando mensajes en tu bot...")
+        self._tg_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
+
+        self._active_worker = BotTestWorker(fetch_telegram_chat_id, token)
+        self._active_worker.finished_result.connect(self._on_telegram_detect_result)
+        self._active_worker.start()
+
+    def _on_telegram_detect_result(self, result: Any, msg: str) -> None:
+        self._tg_detect_btn.setEnabled(True)
+        self._tg_detect_btn.setText("🔍 Detectar ID")
+        if result:
+            self._tg_chat_id_edit.setText(str(result))
+            self._tg_status_lbl.setText(f"✔ {msg}")
+            self._tg_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
+        else:
+            self._tg_status_lbl.setText(f"✕ {msg}")
+            self._tg_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
 
     def _test_telegram(self) -> None:
         token = self._tg_token_edit.text().strip()
@@ -327,7 +386,7 @@ class SettingsDialog(QDialog):
         self._active_worker.finished_result.connect(self._on_telegram_test_result)
         self._active_worker.start()
 
-    def _on_telegram_test_result(self, success: bool, msg: str) -> None:
+    def _on_telegram_test_result(self, success: Any, msg: str) -> None:
         self._tg_test_btn.setEnabled(True)
         self._tg_test_btn.setText("✈ Enviar prueba a Telegram")
         if success:
@@ -337,33 +396,36 @@ class SettingsDialog(QDialog):
             self._tg_status_lbl.setText(f"✕ {msg}")
             self._tg_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
 
-    def _test_whatsapp(self) -> None:
-        phone = self._wa_phone_edit.text().strip()
-        apikey = self._wa_apikey_edit.text().strip()
+    def _test_twilio(self) -> None:
+        sid = self._tw_sid_edit.text().strip()
+        token = self._tw_token_edit.text().strip()
+        from_num = self._tw_from_edit.text().strip()
+        to_num = self._tw_to_edit.text().strip()
+        channel = self._tw_channel_combo.currentText().lower()
 
-        if not phone or not apikey:
-            self._wa_status_lbl.setText("⚠ Ingresa tu Teléfono y tu API Key de CallMeBot.")
-            self._wa_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
+        if not sid or not token or not from_num or not to_num:
+            self._tw_status_lbl.setText("⚠ Completa Account SID, Auth Token, From y To de Twilio.")
+            self._tw_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
             return
 
-        self._wa_test_btn.setEnabled(False)
-        self._wa_test_btn.setText("Enviando...")
-        self._wa_status_lbl.setText("Conectando con CallMeBot...")
-        self._wa_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
+        self._tw_test_btn.setEnabled(False)
+        self._tw_test_btn.setText("Enviando...")
+        self._tw_status_lbl.setText(f"Conectando con Twilio ({channel.upper()})...")
+        self._tw_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
 
-        self._active_worker = BotTestWorker(test_whatsapp, phone, apikey)
-        self._active_worker.finished_result.connect(self._on_whatsapp_test_result)
+        self._active_worker = BotTestWorker(test_twilio, sid, token, from_num, to_num, channel)
+        self._active_worker.finished_result.connect(self._on_twilio_test_result)
         self._active_worker.start()
 
-    def _on_whatsapp_test_result(self, success: bool, msg: str) -> None:
-        self._wa_test_btn.setEnabled(True)
-        self._wa_test_btn.setText("💬 Enviar prueba a WhatsApp")
+    def _on_twilio_test_result(self, success: Any, msg: str) -> None:
+        self._tw_test_btn.setEnabled(True)
+        self._tw_test_btn.setText("📱 Enviar prueba con Twilio")
         if success:
-            self._wa_status_lbl.setText(f"✔ {msg}")
-            self._wa_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
+            self._tw_status_lbl.setText(f"✔ {msg}")
+            self._tw_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
         else:
-            self._wa_status_lbl.setText(f"✕ {msg}")
-            self._wa_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
+            self._tw_status_lbl.setText(f"✕ {msg}")
+            self._tw_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
 
     # ---- Voice tab ----
 
@@ -537,9 +599,15 @@ class SettingsDialog(QDialog):
         self._tg_enabled_cb.setChecked(s.get("telegram_enabled", False))
         self._tg_token_edit.setText(s.get("telegram_bot_token", ""))
         self._tg_chat_id_edit.setText(s.get("telegram_chat_id", ""))
-        self._wa_enabled_cb.setChecked(s.get("whatsapp_enabled", False))
-        self._wa_phone_edit.setText(s.get("whatsapp_phone", ""))
-        self._wa_apikey_edit.setText(s.get("whatsapp_apikey", ""))
+
+        # Twilio
+        self._tw_enabled_cb.setChecked(s.get("twilio_enabled", False))
+        channel = s.get("twilio_channel", "whatsapp").lower()
+        self._tw_channel_combo.setCurrentIndex(1 if channel == "sms" else 0)
+        self._tw_sid_edit.setText(s.get("twilio_account_sid", ""))
+        self._tw_token_edit.setText(s.get("twilio_auth_token", ""))
+        self._tw_from_edit.setText(s.get("twilio_from_number", "+14155238886"))
+        self._tw_to_edit.setText(s.get("twilio_to_number", ""))
 
         # Voice
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
@@ -561,9 +629,12 @@ class SettingsDialog(QDialog):
             "telegram_enabled":      self._tg_enabled_cb.isChecked(),
             "telegram_bot_token":    self._tg_token_edit.text().strip(),
             "telegram_chat_id":      self._tg_chat_id_edit.text().strip(),
-            "whatsapp_enabled":      self._wa_enabled_cb.isChecked(),
-            "whatsapp_phone":        self._wa_phone_edit.text().strip(),
-            "whatsapp_apikey":       self._wa_apikey_edit.text().strip(),
+            "twilio_enabled":        self._tw_enabled_cb.isChecked(),
+            "twilio_channel":        self._tw_channel_combo.currentText().lower(),
+            "twilio_account_sid":    self._tw_sid_edit.text().strip(),
+            "twilio_auth_token":     self._tw_token_edit.text().strip(),
+            "twilio_from_number":    self._tw_from_edit.text().strip(),
+            "twilio_to_number":      self._tw_to_edit.text().strip(),
             "voice_enabled":         self._voice_enabled_cb.isChecked(),
             "voice_engine":          "google" if self._engine_combo.currentIndex() == 0 else "vosk",
             "vosk_model_path":       self._vosk_path_edit.text().strip(),
