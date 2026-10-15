@@ -318,8 +318,13 @@ class SettingsDialog(QDialog):
         tw_form.addRow("Para (Tu Teléfono):", self._tw_to_edit)
 
         self._tw_contentsid_edit = QLineEdit()
-        self._tw_contentsid_edit.setPlaceholderText("Ej: HXb5b62575e6e4ff6129ad7c8efe1f983e (opcional / plantillas)")
-        tw_form.addRow("Content SID (Plantilla):", self._tw_contentsid_edit)
+        self._tw_contentsid_edit.setPlaceholderText("Dejar en blanco para texto libre (o plantilla HX...)")
+        tw_form.addRow("Content SID:", self._tw_contentsid_edit)
+
+        tw_csid_hint = QLabel("💡 Si ya enviaste «Hola» a Twilio por WhatsApp, deja Content SID en blanco para enviar texto plano libre directo.")
+        tw_csid_hint.setWordWrap(True)
+        tw_csid_hint.setStyleSheet("color: #64748B; font-size: 10px; padding-left: 2px;")
+        tw_form.addRow("", tw_csid_hint)
 
         tw_layout.addLayout(tw_form)
 
