@@ -42,10 +42,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QDateTime
 
 from core.tasks import DatabaseManager
-from core.voice import VoiceManager
+from core.voice import VoiceManager, extract_task_number
 from core.notifier import NotificationManager
 from ui.task_widget import TaskWidget
 from ui.settings_dialog import SettingsDialog
+
 
 logger = logging.getLogger(__name__)
 
@@ -443,6 +444,7 @@ class MainWindow(QMainWindow):
         self._voice_mgr: Optional[VoiceManager] = None
         self._active_category_id: Optional[int] = None
         self._task_widgets: Dict[int, TaskWidget] = {}
+        self._current_tasks: List[Dict[str, Any]] = []
 
         # Voice button animation timer
         self._voice_anim_timer = QTimer(self)
@@ -735,17 +737,56 @@ class MainWindow(QMainWindow):
                 self._refresh_tasks()
                 self.statusBar().showMessage(f'🎙 Tarea añadida: "{title}"', 5000)
         elif cmd_type == "complete_task":
-            tasks = self._db.get_all_tasks(search=title)
-            if tasks:
-                self._db.complete_task(tasks[0]["id"])
-                self._refresh_tasks()
-                self.statusBar().showMessage(f'✅ Completada: "{tasks[0]["title"]}"', 4000)
+            target_num = params.get("number")
+            if target_num is None:
+                target_num = extract_task_number(title)
+
+            if target_num is not None:
+                if 1 <= target_num <= len(self._current_tasks):
+                    task_to_complete = self._current_tasks[target_num - 1]
+                    self._db.complete_task(task_to_complete["id"])
+                    self._refresh_tasks()
+                    self.statusBar().showMessage(
+                        f'✅ Tarea #{target_num} completada: "{task_to_complete["title"]}"', 5000
+                    )
+                else:
+                    self.statusBar().showMessage(
+                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.', 5000
+                    )
+            else:
+                tasks = self._db.get_all_tasks(search=title)
+                if tasks:
+                    self._db.complete_task(tasks[0]["id"])
+                    self._refresh_tasks()
+                    self.statusBar().showMessage(f'✅ Completada: "{tasks[0]["title"]}"', 4000)
+                else:
+                    self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
         elif cmd_type == "delete_task":
-            tasks = self._db.get_all_tasks(search=title)
-            if tasks:
-                self._db.delete_task(tasks[0]["id"])
-                self._refresh_tasks()
-                self.statusBar().showMessage(f'🗑 Eliminada: "{tasks[0]["title"]}"', 4000)
+            target_num = params.get("number")
+            if target_num is None:
+                target_num = extract_task_number(title)
+
+            if target_num is not None:
+                if 1 <= target_num <= len(self._current_tasks):
+                    task_to_delete = self._current_tasks[target_num - 1]
+                    self._db.delete_task(task_to_delete["id"])
+                    self._refresh_tasks()
+                    self.statusBar().showMessage(
+                        f'🗑 Tarea #{target_num} eliminada: "{task_to_delete["title"]}"', 5000
+                    )
+                else:
+                    self.statusBar().showMessage(
+                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.', 5000
+                    )
+            else:
+                tasks = self._db.get_all_tasks(search=title)
+                if tasks:
+                    self._db.delete_task(tasks[0]["id"])
+                    self._refresh_tasks()
+                    self.statusBar().showMessage(f'🗑 Eliminada: "{tasks[0]["title"]}"', 4000)
+                else:
+                    self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
+
         elif cmd_type == "show_progress":
             stats = self._db.get_stats()
             self.statusBar().showMessage(
@@ -838,9 +879,10 @@ class MainWindow(QMainWindow):
         else:
             self._empty_label.hide()
 
-        for task in tasks:
+        self._current_tasks = list(tasks)
+        for idx, task in enumerate(tasks, start=1):
             subtasks = self._db.get_subtasks(task["id"])
-            widget = TaskWidget(task, subtasks)
+            widget = TaskWidget(task, subtasks, index_number=idx)
             widget.task_completed.connect(self._on_task_completed)
             widget.task_uncompleted.connect(self._on_task_uncompleted)
             widget.task_deleted.connect(self._on_task_deleted)
@@ -850,6 +892,7 @@ class MainWindow(QMainWindow):
             widget.move_category_requested.connect(self._on_move_category)
             self._tasks_layout.insertWidget(self._tasks_layout.count() - 1, widget)
             self._task_widgets[task["id"]] = widget
+
 
         self._refresh_status()
 

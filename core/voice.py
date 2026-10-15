@@ -30,15 +30,57 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMutex, QMutexLocker
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Spanish word-to-number dictionary
+# ---------------------------------------------------------------------------
+SPANISH_WORD_TO_NUMBER: Dict[str, int] = {
+    "cero": 0, "uno": 1, "un": 1, "una": 1, "primero": 1, "primera": 1, "1º": 1, "1°": 1,
+    "dos": 2, "segundo": 2, "segunda": 2, "2º": 2, "2°": 2,
+    "tres": 3, "tercero": 3, "tercera": 3, "3º": 3, "3°": 3,
+    "cuatro": 4, "cuarto": 4, "cuarta": 4,
+    "cinco": 5, "quinto": 5, "quinta": 5,
+    "seis": 6, "sexto": 6, "sexta": 6,
+    "siete": 7, "séptimo": 7, "septimo": 7, "séptima": 7,
+    "ocho": 8, "octavo": 8, "octava": 8,
+    "nueve": 9, "noveno": 9, "novena": 9,
+    "diez": 10, "décimo": 10, "decimo": 10,
+    "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15,
+    "dieciséis": 16, "dieciseis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
+    "veinte": 20, "veintiuno": 21, "veintidós": 22, "veintidos": 22, "veintitrés": 23, "veintitres": 23,
+    "veinticuatro": 24, "veinticinco": 25, "veintiséis": 26, "veintiseis": 26, "veintisiete": 27,
+    "veintiocho": 28, "veintinueve": 29, "treinta": 30, "cuarenta": 40, "cincuenta": 50,
+}
+
+
+def extract_task_number(text: str) -> Optional[int]:
+    """
+    Extract a task index number from text (e.g. 'uno', '1', 'número 3', 'la 2').
+    Returns an int >= 1, or None if no number is identified.
+    """
+    if not text:
+        return None
+    cleaned = text.strip().lower()
+    cleaned = re.sub(r"^(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?", "", cleaned).strip()
+    cleaned = re.sub(r"\s+(?:como\s+)?(?:hecha|completada|terminada|finalizada)$", "", cleaned).strip()
+    if cleaned.isdigit():
+        return int(cleaned)
+    m = re.search(r"\b(\d+)\b", cleaned)
+    if m:
+        return int(m.group(1))
+    for word in cleaned.split():
+        if word in SPANISH_WORD_TO_NUMBER:
+            return SPANISH_WORD_TO_NUMBER[word]
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Command patterns (Spanish)
 # ---------------------------------------------------------------------------
 COMMAND_PATTERNS = [
-    # Completar tarea
-    (re.compile(r"^(?:completar|terminar|finalizar|marcar\s+como\s+hecha)\s+(?:la\s+)?tarea\s+(.+)", re.IGNORECASE), "complete_task"),
-    (re.compile(r"^(?:completar|terminar|finalizar)\s+(.+)", re.IGNORECASE), "complete_task"),
-    # Eliminar tarea
-    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?tarea\s+(.+)", re.IGNORECASE), "delete_task"),
-    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(.+)", re.IGNORECASE), "delete_task"),
+    # Completar tarea (por número o título)
+    (re.compile(r"^(?:completar|terminar|finalizar|marcar(?:\s+como\s+(?:hecha|completada))?)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "complete_task"),
+    (re.compile(r"^(?:la\s+)?tarea\s+(.+?)\s+(?:como\s+)?(?:completada|hecha|terminada|finalizada)$", re.IGNORECASE), "complete_task"),
+    # Eliminar tarea (por número o título)
+    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "delete_task"),
     # Mostrar progreso
     (re.compile(r"^(?:mostrar|ver|cual\s+es\s+el)?\s*progreso", re.IGNORECASE), "show_progress"),
     # Añadir / Crear tarea con prefijo
@@ -66,13 +108,19 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
         if m:
             params: Dict[str, Any] = {"raw": text}
             if m.lastindex and m.lastindex >= 1:
-                params["title"] = m.group(1).strip()
+                title_val = m.group(1).strip()
+                params["title"] = title_val
+                # Check if it refers to a task number
+                num = extract_task_number(title_val)
+                if num is not None:
+                    params["number"] = num
             return {"type": cmd_type, "params": params}
 
     # Si el usuario simplemente dijo algo (ej. "comprar leche", "llamar al dentista"),
     # se convierte automáticamente en una nueva tarea:
     title = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
     return {"type": "add_task", "params": {"title": title, "raw": text}}
+
 
 
 

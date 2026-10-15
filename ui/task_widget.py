@@ -147,12 +147,19 @@ class TaskWidget(QFrame):
     add_subtask_requested = pyqtSignal(int)
     move_category_requested = pyqtSignal(int)
 
-    def __init__(self, task: Dict[str, Any], subtasks: List[Dict[str, Any]], parent=None):
+    def __init__(
+        self,
+        task: Dict[str, Any],
+        subtasks: List[Dict[str, Any]],
+        index_number: Optional[int] = None,
+        parent=None,
+    ):
         super().__init__(parent)
-        self.task_id   = task["id"]
-        self._task     = task
-        self._subtasks = subtasks
-        self._expanded = False
+        self.task_id       = task["id"]
+        self._task         = task
+        self._subtasks     = subtasks
+        self._index_number = index_number
+        self._expanded     = False
 
         self._build_ui()
         self._apply_task_data()
@@ -190,6 +197,20 @@ class TaskWidget(QFrame):
         self._cb.stateChanged.connect(self._on_checkbox)
         top_row.addWidget(self._cb)
 
+        self._num_badge = QLabel()
+        self._num_badge.setFixedHeight(22)
+        self._num_badge.setStyleSheet(
+            "background-color: #181825; color: #89b4fa; font-weight: 700; "
+            "border: 1px solid #45475a; border-radius: 6px; padding: 2px 7px; "
+            "font-size: 11px;"
+        )
+        if self._index_number is not None:
+            self._num_badge.setText(f"#{self._index_number}")
+            self._num_badge.setToolTip(f"Comando de voz: 'completar tarea {self._index_number}'")
+        else:
+            self._num_badge.hide()
+        top_row.addWidget(self._num_badge)
+
         self._title_label = QLabel()
         self._title_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #cdd6f4;")
         self._title_label.setWordWrap(True)
@@ -208,6 +229,7 @@ class TaskWidget(QFrame):
         top_row.addWidget(self._expand_btn)
 
         root.addLayout(top_row)
+
 
         # --- Middle row: badge + due date ---
         mid_row = QHBoxLayout()
