@@ -1400,28 +1400,29 @@ class MainWindow(QMainWindow):
     def _show_dashboard_view(self) -> None:
         self._stack.setCurrentIndex(1)
         self._sidebar.set_nav_index(1)
-        self._topbar.set_title("Dashboard")
+        self._topbar.set_title(tr("nav_dashboard"))
         if hasattr(self, "_dashboard_view"):
             self._dashboard_view.refresh_data()
 
     def _show_missions_view(self) -> None:
         self._stack.setCurrentIndex(2)
         self._sidebar.set_nav_index(2)
-        self._topbar.set_title("Misiones y Progreso")
+        self._topbar.set_title(tr("missions_title"))
         if hasattr(self, "_gamification_view"):
             self._gamification_view.refresh_data()
         self._refresh_gamification_hud()
 
     def _update_topbar_title(self) -> None:
         if self._active_category_id is None:
-            self._topbar.set_title("Todas las tareas")
+            self._topbar.set_title(tr("all_tasks_title"))
         else:
             categories = self._db.get_categories()
             cat = next((c for c in categories if c["id"] == self._active_category_id), None)
             if cat:
-                self._topbar.set_title(cat["name"])
+                cat_display = tr(f"cat_{cat['name'].lower()}", cat["name"])
+                self._topbar.set_title(cat_display)
             else:
-                self._topbar.set_title("Todas las tareas")
+                self._topbar.set_title(tr("all_tasks_title"))
 
     def _on_sidebar_category_selected(self, cat_id: Optional[int]) -> None:
         self._active_category_id = cat_id
@@ -1786,8 +1787,19 @@ class MainWindow(QMainWindow):
             self._mission_banner.retranslate_ui()
         if hasattr(self, "_dashboard_view") and self._dashboard_view:
             self._dashboard_view.retranslate_ui()
+        if hasattr(self, "_gamification_view") and self._gamification_view:
+            self._gamification_view.retranslate_ui()
         if hasattr(self, "_voice_status_lbl") and self._voice_status_lbl:
             self._voice_status_lbl.setText(tr("voice_status_ready"))
+
+        if hasattr(self, "_stack") and hasattr(self, "_topbar"):
+            if self._stack.currentIndex() == 1:
+                self._topbar.set_title(tr("nav_dashboard"))
+            elif self._stack.currentIndex() == 2:
+                self._topbar.set_title(tr("missions_title"))
+            else:
+                self._update_topbar_title()
+
         self._refresh_status()
 
     # ------------------------------------------------------------------

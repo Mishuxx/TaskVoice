@@ -1260,21 +1260,41 @@ RANKS = [
     (10, "Arconte Supremo", "⚡", "Fusión pura de energía y voluntad imparable."),
 ]
 
+RANKS_EN = [
+    (1, "Terran Recruit", "⚔️", "First steps on the front line."),
+    (2, "Marine Soldier", "🛡️", "Veteran of tactical skirmishes."),
+    (3, "Psionic Ghost", "⚡", "Specialist in covert operations."),
+    (4, "Void Inquisitor", "🔥", "Purifier of hostile sectors."),
+    (5, "Siege Tank Pilot", "💎", "Destructive and disciplined firepower."),
+    (6, "Ascendant Exile", "🌌", "Has transcended the trials of the labyrinth."),
+    (7, "Atlas Godslayer", "👑", "Dominator of cosmic forces."),
+    (8, "Battlecruiser Captain", "🪐", "Supreme commander of star fleets."),
+    (9, "High Templar", "🌟", "Psionic mastery and absolute focus."),
+    (10, "Supreme Archon", "⚡", "Pure fusion of energy and unstoppable will."),
+]
+
 
 def get_rank_info(level: int) -> Dict[str, Any]:
     """Return rank title, icon, description, and next rank info for a level."""
-    current = RANKS[0]
-    next_rank = RANKS[1] if len(RANKS) > 1 else None
-    for idx, r in enumerate(RANKS):
+    try:
+        from core.i18n import get_language
+        is_en = (get_language() == "en")
+    except Exception:
+        is_en = False
+
+    ranks_list = RANKS_EN if is_en else RANKS
+    current = ranks_list[0]
+    next_rank = ranks_list[1] if len(ranks_list) > 1 else None
+    for idx, r in enumerate(ranks_list):
         if level >= r[0]:
             current = r
-            next_rank = RANKS[idx + 1] if idx + 1 < len(RANKS) else None
+            next_rank = ranks_list[idx + 1] if idx + 1 < len(ranks_list) else None
     return {
         "title": current[1],
         "icon": current[2],
         "desc": current[3],
         "level": current[0],
-        "next_title": next_rank[1] if next_rank else "Máximo Rango Alcanzado",
+        "next_title": next_rank[1] if next_rank else ("Maximum Rank Achieved" if is_en else "Máximo Rango Alcanzado"),
         "next_level": next_rank[0] if next_rank else None,
     }
 

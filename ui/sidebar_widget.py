@@ -534,8 +534,12 @@ class SidebarWidget(QWidget):
         self._nav_settings.set_nav_text(tr("nav_settings"))
         self._cat_header.setText(tr("categories_header"))
         self._add_cat_btn.setText(tr("new_category"))
-        if self._cat_items:
-            self._cat_items[0]._label.setText(tr("cat_all"))
+        for item in self._cat_items:
+            raw_name = item.property("raw_cat_name")
+            if raw_name is None:
+                item._label.setText(tr("cat_all"))
+            else:
+                item._label.setText(tr(f"cat_{raw_name.lower()}", raw_name))
 
     def _select_nav(self, index: int) -> None:
         self._nav_tasks.setChecked(index == 0)
@@ -564,6 +568,7 @@ class SidebarWidget(QWidget):
             cat_id=None,
             count=total_count,
         )
+        all_item.setProperty("raw_cat_name", None)
         all_item.set_active(self._active_cat_id is None)
         all_item.clicked.connect(lambda: self._on_cat_clicked(None, all_item))
         self._cat_container.addWidget(all_item)
@@ -572,15 +577,17 @@ class SidebarWidget(QWidget):
         for cat in categories:
             cid = cat["id"]
             name = cat["name"]
+            display_name = tr(f"cat_{name.lower()}", name)
             color = cat.get("color") or CATEGORY_COLORS.get(name, "#60A5FA")
             c_count = counts.get(cid, 0)
 
             item_btn = CategoryItemButton(
-                name=name,
+                name=display_name,
                 color=color,
                 cat_id=cid,
                 count=c_count,
             )
+            item_btn.setProperty("raw_cat_name", name)
             item_btn.set_active(self._active_cat_id == cid)
             item_btn.clicked.connect(lambda c=cid, b=item_btn: self._on_cat_clicked(c, b))
             self._cat_container.addWidget(item_btn)

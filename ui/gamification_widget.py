@@ -19,9 +19,46 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
-from core.tasks import DatabaseManager, RANKS, get_rank_info, get_xp_needed_for_level
+from core.tasks import DatabaseManager, RANKS, RANKS_EN, get_rank_info, get_xp_needed_for_level
+from core.i18n import tr, get_language
 
 logger = logging.getLogger(__name__)
+
+QUEST_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    "daily_first_blood": {
+        "title": "Tactical First Blood",
+        "description": "Neutralize at least 1 task from your operations list.",
+        "faction": "Terran Command",
+    },
+    "daily_purge_sector": {
+        "title": "Sector Purge",
+        "description": "Complete 3 operational tasks during the day.",
+        "faction": "Exiles of Wraeclast",
+    },
+    "daily_critical_op": {
+        "title": "Critical Omega Protocol",
+        "description": "Complete a classified High priority task without hesitation.",
+        "faction": "Protoss Conclave",
+    },
+    "daily_psionic_voice": {
+        "title": "Psionic Voice Link",
+        "description": "Execute an action using your voice via tactical commands.",
+        "faction": "Tactical Command",
+    },
+    "daily_squad_micro": {
+        "title": "Squad Micromanagement",
+        "description": "Complete at least 2 subtasks in your assignments.",
+        "faction": "Dominion Armory",
+    },
+}
+
+FACTION_TRANSLATIONS: Dict[str, str] = {
+    "Comando Terran": "Terran Command",
+    "Exiliados de Wraeclast": "Exiles of Wraeclast",
+    "Conclave Protoss": "Protoss Conclave",
+    "Comando Táctico": "Tactical Command",
+    "Armería del Dominio": "Dominion Armory",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -33,20 +70,29 @@ class LevelUpDialog(QMessageBox):
 
     def __init__(self, level: int, rank_title: str, rank_icon: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚡ ASCENSIÓN DE RANGO – LEVEL UP ⚡")
+        is_en = (get_language() == "en")
+        title_text = "⚡ RANK ASCENSION – LEVEL UP ⚡" if is_en else "⚡ ASCENSIÓN DE RANGO – LEVEL UP ⚡"
+        h2_text = f"LEVEL {level} REACHED!" if is_en else f"¡NIVEL {level} ALCANZADO!"
+        p_text = (
+            "Your strategic prowess has been recognized by high command.<br>"
+            "Continue neutralizing tasks and missions to climb the hierarchy!"
+            if is_en else
+            "Tus capacidades estratégicas han sido reconocidas por el alto mando.<br>"
+            "¡Continúa neutralizando tareas y misiones para ascender en la jerarquía!"
+        )
+        btn_text = "⚔️ To Victory!" if is_en else "⚔️ ¡A la carga!"
+
+        self.setWindowTitle(title_text)
         self.setIcon(QMessageBox.Icon.Information)
         self.setText(
-            f"<h2 style='color:#00f0ff; margin-bottom:4px;'>¡NIVEL {level} ALCANZADO!</h2>"
+            f"<h2 style='color:#00f0ff; margin-bottom:4px;'>{h2_text}</h2>"
             f"<h3 style='color:#ffd166; margin-top:0px;'>{rank_icon} {rank_title}</h3>"
-            f"<p style='color:#cdd6f4; font-size:13px;'>"
-            f"Tus capacidades estratégicas han sido reconocidas por el alto mando.<br>"
-            f"¡Continúa neutralizando tareas y misiones para ascender en la jerarquía!"
-            f"</p>"
+            f"<p style='color:#cdd6f4; font-size:13px;'>{p_text}</p>"
         )
         self.setStandardButtons(QMessageBox.StandardButton.Ok)
         ok_btn = self.button(QMessageBox.StandardButton.Ok)
         if ok_btn:
-            ok_btn.setText("⚔️ ¡A la carga!")
+            ok_btn.setText(btn_text)
             ok_btn.setStyleSheet(
                 "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d97706, stop:1 #f59e0b); "
                 "color: #090b10; font-weight: bold; border-radius: 6px; padding: 6px 20px; font-size: 13px;"
@@ -77,6 +123,20 @@ class QuestCard(QFrame):
 
         is_completed = bool(self.quest["completed"])
         is_claimed = bool(self.quest["claimed"])
+        is_en = (get_language() == "en")
+
+        q_key = self.quest.get("quest_key", "")
+        if is_en and q_key in QUEST_TRANSLATIONS:
+            q_info = QUEST_TRANSLATIONS[q_key]
+            q_title = q_info["title"]
+            q_desc = q_info["description"]
+            q_faction = q_info["faction"]
+        else:
+            q_title = self.quest.get("title", "")
+            q_desc = self.quest.get("description", "")
+            q_faction = self.quest.get("faction", "Comando Terran")
+            if is_en and q_faction in FACTION_TRANSLATIONS:
+                q_faction = FACTION_TRANSLATIONS[q_faction]
 
         # Border color depending on state
         if is_claimed:
@@ -107,7 +167,7 @@ class QuestCard(QFrame):
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
-        faction_lbl = QLabel(f"[{self.quest.get('faction', 'Comando Terran').upper()}]")
+        faction_lbl = QLabel(f"[{q_faction.upper()}]")
         faction_lbl.setStyleSheet(
             "font-size: 10px; font-weight: 700; color: #00e5ff; letter-spacing: 1px;"
         )
@@ -130,12 +190,12 @@ class QuestCard(QFrame):
         icon_lbl.setStyleSheet("font-size: 16px;")
         title_row.addWidget(icon_lbl)
 
-        title_lbl = QLabel(self.quest["title"])
+        title_lbl = QLabel(q_title)
         title_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #e2e8f0;")
         title_row.addWidget(title_lbl, 1)
         layout.addLayout(title_row)
 
-        desc_lbl = QLabel(self.quest["description"])
+        desc_lbl = QLabel(q_desc)
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("font-size: 12px; color: #94a3b8; font-style: italic;")
         layout.addWidget(desc_lbl)
@@ -168,11 +228,11 @@ class QuestCard(QFrame):
         btn_row.addStretch()
 
         if is_claimed:
-            done_lbl = QLabel("✔ Recompensa Reclamada")
+            done_lbl = QLabel(tr("quest_claimed"))
             done_lbl.setStyleSheet("color: #10b981; font-weight: 600; font-size: 12px;")
             btn_row.addWidget(done_lbl)
         elif is_completed:
-            claim_btn = QPushButton("⚡ RECLAMAR RECOMPENSA")
+            claim_btn = QPushButton(tr("quest_claim_btn"))
             claim_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             claim_btn.setStyleSheet(
                 "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d97706, stop:1 #f59e0b); "
@@ -183,7 +243,7 @@ class QuestCard(QFrame):
             claim_btn.clicked.connect(lambda: self.claim_clicked.emit(self.quest["id"]))
             btn_row.addWidget(claim_btn)
         else:
-            in_prog = QLabel("En progreso…")
+            in_prog = QLabel(tr("quest_in_progress"))
             in_prog.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500;")
             btn_row.addWidget(in_prog)
 
@@ -219,20 +279,20 @@ class GamificationWidget(QWidget):
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
 
-        title_lbl = QLabel("⚔️ CENTRO DE COMANDO & OPERACIONES")
-        title_lbl.setStyleSheet(
+        self._title_lbl = QLabel(tr("hub_title"))
+        self._title_lbl.setStyleSheet(
             "font-size: 20px; font-weight: 800; color: #00f0ff; letter-spacing: 1px;"
         )
-        title_box.addWidget(title_lbl)
+        title_box.addWidget(self._title_lbl)
 
-        sub_lbl = QLabel("Gamificación táctica • Experiencia • Rangos de Honor • Misiones Diarias")
-        sub_lbl.setStyleSheet("font-size: 12px; color: #64748b;")
-        title_box.addWidget(sub_lbl)
+        self._sub_lbl = QLabel(tr("hub_subtitle"))
+        self._sub_lbl.setStyleSheet("font-size: 12px; color: #64748b;")
+        title_box.addWidget(self._sub_lbl)
         header_row.addLayout(title_box)
 
         header_row.addStretch()
 
-        self._refresh_btn = QPushButton("🔄 Actualizar")
+        self._refresh_btn = QPushButton(f"🔄 {tr('btn_refresh')}")
         self._refresh_btn.setStyleSheet(
             "QPushButton { background: #1a2233; color: #00f0ff; border: 1px solid #2a3b5c; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background: #223147; border-color: #00f0ff; }"
@@ -288,7 +348,7 @@ class GamificationWidget(QWidget):
         self._lvl_badge = QLabel("NIVEL 1")
         self._lvl_badge.setStyleSheet(
             "font-size: 11px; font-weight: 800; color: #ffd166; background: #261a08; "
-            "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px; max-width: 75px;"
+            "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px; max-width: 85px;"
         )
         name_col.addWidget(self._lvl_badge)
 
@@ -317,9 +377,9 @@ class GamificationWidget(QWidget):
         xp_box.setSpacing(4)
 
         xp_header = QHBoxLayout()
-        xp_title = QLabel("EXPERIENCIA MILITAR (XP)")
-        xp_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #00f0ff; letter-spacing: 1px;")
-        xp_header.addWidget(xp_title)
+        self._xp_title_lbl = QLabel(tr("military_xp"))
+        self._xp_title_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #00f0ff; letter-spacing: 1px;")
+        xp_header.addWidget(self._xp_title_lbl)
         xp_header.addStretch()
 
         self._xp_numbers_lbl = QLabel("0 / 150 XP (0%)")
@@ -345,7 +405,7 @@ class GamificationWidget(QWidget):
         )
         xp_box.addWidget(self._xp_bar)
 
-        self._next_rank_hint = QLabel("Próximo ascenso a Soldado Marine al subir de nivel.")
+        self._next_rank_hint = QLabel("")
         self._next_rank_hint.setStyleSheet("font-size: 11px; color: #64748b; font-style: italic;")
         xp_box.addWidget(self._next_rank_hint)
 
@@ -355,10 +415,10 @@ class GamificationWidget(QWidget):
         stats_grid = QGridLayout()
         stats_grid.setSpacing(8)
 
-        self._stat_tasks = self._create_stat_badge("⚔️ Tareas Completadas", "0")
-        self._stat_subtasks = self._create_stat_badge("🧩 Subtareas", "0")
-        self._stat_voice = self._create_stat_badge("🎙️ Órdenes de Voz", "0")
-        self._stat_total_xp = self._create_stat_badge("🏆 XP Total Acumulado", "0 XP")
+        self._stat_tasks = self._create_stat_badge(tr("stat_tasks_done"), "0")
+        self._stat_subtasks = self._create_stat_badge(tr("stat_subtasks_done"), "0")
+        self._stat_voice = self._create_stat_badge(tr("stat_voice_orders"), "0")
+        self._stat_total_xp = self._create_stat_badge(tr("stat_total_xp"), "0 XP")
 
         stats_grid.addWidget(self._stat_tasks[0], 0, 0)
         stats_grid.addWidget(self._stat_subtasks[0], 0, 1)
@@ -372,12 +432,12 @@ class GamificationWidget(QWidget):
         # 2. Daily Operations & Quests Section
         # ------------------------------------------------------------------
         quests_header = QHBoxLayout()
-        q_title = QLabel("🎯 OPERACIONES TÁCTICAS DEL DÍA")
-        q_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #ffd166; letter-spacing: 1px;")
-        quests_header.addWidget(q_title)
+        self._q_title_lbl = QLabel(tr("daily_ops_title"))
+        self._q_title_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #ffd166; letter-spacing: 1px;")
+        quests_header.addWidget(self._q_title_lbl)
         quests_header.addStretch()
 
-        self._quests_counter_lbl = QLabel("0/5 Completadas")
+        self._quests_counter_lbl = QLabel("0/5")
         self._quests_counter_lbl.setStyleSheet("font-size: 12px; color: #94a3b8; font-weight: 600;")
         quests_header.addWidget(self._quests_counter_lbl)
         self._content_layout.addLayout(quests_header)
@@ -389,9 +449,9 @@ class GamificationWidget(QWidget):
         # ------------------------------------------------------------------
         # 3. Ranks Overview Section (Escalafón Militar)
         # ------------------------------------------------------------------
-        ranks_header = QLabel("🌟 ESCALAFÓN DE HONOR & ASCENSIÓN")
-        ranks_header.setStyleSheet("font-size: 15px; font-weight: 800; color: #00f0ff; letter-spacing: 1px; margin-top: 10px;")
-        self._content_layout.addWidget(ranks_header)
+        self._ranks_header_lbl = QLabel(tr("ranks_roster_title"))
+        self._ranks_header_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #00f0ff; letter-spacing: 1px; margin-top: 10px;")
+        self._content_layout.addWidget(self._ranks_header_lbl)
 
         self._ranks_container = QVBoxLayout()
         self._ranks_container.setSpacing(4)
@@ -432,10 +492,12 @@ class GamificationWidget(QWidget):
         # Update Hero Card
         rank = profile["rank"]
         self._crest_lbl.setText(rank["icon"])
-        self._lvl_badge.setText(f"NIVEL {profile['level']}")
+        self._lvl_badge.setText(tr("level_label", level=profile['level']))
         self._rank_title_lbl.setText(f"{rank['icon']} {rank['title']}")
         self._rank_desc_lbl.setText(rank["desc"])
-        self._streak_pill.setText(f"🔥 Racha: {profile['streak_days']} Días")
+
+        days_unit = tr("day_unit_singular") if profile['streak_days'] == 1 else tr("day_unit_plural")
+        self._streak_pill.setText(tr("streak_days", days=profile['streak_days'], unit=days_unit))
 
         self._xp_bar.setValue(int(profile["xp_progress_pct"]))
         self._xp_numbers_lbl.setText(
@@ -444,15 +506,22 @@ class GamificationWidget(QWidget):
         if rank.get("next_level"):
             xp_remaining = max(0, profile["xp_needed"] - profile["xp"])
             self._next_rank_hint.setText(
-                f"Faltan {xp_remaining} XP para ascender al rango de {rank['next_title']} (Nivel {rank['next_level']})."
+                tr("next_rank_hint", remaining=xp_remaining, next_title=rank['next_title'], next_level=rank['next_level'])
             )
         else:
-            self._next_rank_hint.setText("¡Has alcanzado el rango máximo supremo del universo!")
+            self._next_rank_hint.setText(tr("max_rank_hint"))
 
         # Update Stats
+        self._stat_tasks[0].findChild(QLabel).setText(tr("stat_tasks_done"))
         self._stat_tasks[1].setText(str(profile["tasks_completed_count"]))
+
+        self._stat_subtasks[0].findChild(QLabel).setText(tr("stat_subtasks_done"))
         self._stat_subtasks[1].setText(str(profile["subtasks_completed_count"]))
+
+        self._stat_voice[0].findChild(QLabel).setText(tr("stat_voice_orders"))
         self._stat_voice[1].setText(str(profile["voice_commands_count"]))
+
+        self._stat_total_xp[0].findChild(QLabel).setText(tr("stat_total_xp"))
         self._stat_total_xp[1].setText(f"{profile['total_xp']} XP")
 
         # Update Quests
@@ -462,7 +531,7 @@ class GamificationWidget(QWidget):
                 item.widget().deleteLater()
 
         completed_count = sum(1 for q in quests if q["completed"])
-        self._quests_counter_lbl.setText(f"{completed_count}/{len(quests)} Completadas")
+        self._quests_counter_lbl.setText(tr("ops_completed_counter", done=completed_count, total=len(quests)))
 
         for q in quests:
             card = QuestCard(q)
@@ -475,7 +544,11 @@ class GamificationWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        for lvl, title, icon, desc in RANKS:
+        is_en = (get_language() == "en")
+        ranks_list = RANKS_EN if is_en else RANKS
+        lvl_word = "Level" if is_en else "Nivel"
+
+        for lvl, title, icon, desc in ranks_list:
             r_frame = QFrame()
             is_current = (lvl == profile["level"])
             is_unlocked = (lvl <= profile["level"])
@@ -483,17 +556,17 @@ class GamificationWidget(QWidget):
             if is_current:
                 bg = "#1b2538"
                 border = "#00f0ff"
-                status_txt = "★ RANGO ACTIVO"
+                status_txt = tr("rank_active")
                 status_color = "#00f0ff"
             elif is_unlocked:
                 bg = "#101622"
                 border = "#1f2d42"
-                status_txt = "✔ ALCANZADO"
+                status_txt = tr("rank_achieved")
                 status_color = "#10b981"
             else:
                 bg = "#0b0e14"
                 border = "#161b26"
-                status_txt = f"🔒 Nivel {lvl}"
+                status_txt = tr("rank_locked", lvl=lvl)
                 status_color = "#64748b"
 
             r_frame.setStyleSheet(
@@ -509,7 +582,7 @@ class GamificationWidget(QWidget):
 
             rl_info = QVBoxLayout()
             rl_info.setSpacing(1)
-            t_lbl = QLabel(f"Nivel {lvl}: {title}")
+            t_lbl = QLabel(f"{lvl_word} {lvl}: {title}")
             t_lbl.setStyleSheet(
                 f"font-size: 12px; font-weight: 700; color: {'#f8fafc' if is_unlocked else '#64748b'};"
             )
@@ -525,6 +598,16 @@ class GamificationWidget(QWidget):
             rl.addWidget(st_lbl)
 
             self._ranks_container.addWidget(r_frame)
+
+    def retranslate_ui(self) -> None:
+        """Retranslate static labels and refresh gamification view."""
+        self._title_lbl.setText(tr("hub_title"))
+        self._sub_lbl.setText(tr("hub_subtitle"))
+        self._refresh_btn.setText(f"🔄 {tr('btn_refresh')}")
+        self._xp_title_lbl.setText(tr("military_xp"))
+        self._q_title_lbl.setText(tr("daily_ops_title"))
+        self._ranks_header_lbl.setText(tr("ranks_roster_title"))
+        self.refresh_data()
 
     def _on_claim_quest(self, quest_id: int) -> None:
         """Handle claiming quest reward."""
