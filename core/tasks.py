@@ -23,10 +23,10 @@ DB_PATH = DB_DIR / "tasks.db"
 # Default categories (name, hex-color)
 # ---------------------------------------------------------------------------
 DEFAULT_CATEGORIES = [
-    ("Personal",  "#7c3aed"),
-    ("Trabajo",   "#2563eb"),
-    ("Salud",     "#16a34a"),
-    ("Estudio",   "#d97706"),
+    ("Estudio",   "#60A5FA"),
+    ("Personal",  "#C084FC"),
+    ("Salud",     "#34D399"),
+    ("Trabajo",   "#F59E0B"),
 ]
 
 
@@ -175,6 +175,10 @@ class DatabaseManager:
                     "INSERT INTO categories (name, color) VALUES (?, ?)",
                     DEFAULT_CATEGORIES
                 )
+        else:
+            with self._conn:
+                for name, col in DEFAULT_CATEGORIES:
+                    self._conn.execute("UPDATE categories SET color = ? WHERE name = ?", (col, name))
 
     def _seed_gamification(self) -> None:
         """Insert default gamification user profile if empty."""

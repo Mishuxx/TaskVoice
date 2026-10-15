@@ -46,19 +46,19 @@ def main() -> int:
     # Create QApplication
     # ------------------------------------------------------------------
     app = QApplication(sys.argv)
-    app.setApplicationName("TaskVoice")
-    app.setApplicationDisplayName("TaskVoice")
+    app.setApplicationName("Taskmaster")
+    app.setApplicationDisplayName("Taskmaster")
     app.setOrganizationName("Antigravity")
     app.setOrganizationDomain("antigravity.local")
 
     # ------------------------------------------------------------------
     # Single instance lock (prevent multiple instances)
     # ------------------------------------------------------------------
-    server_name = "TaskVoice_SingleInstance_App_Server"
+    server_name = "Taskmaster_SingleInstance_App_Server"
     check_socket = QLocalSocket()
     check_socket.connectToServer(server_name)
     if check_socket.waitForConnected(400):
-        logger.info("Otra instancia de TaskVoice ya está abierta. Activando la ventana existente...")
+        logger.info("Otra instancia de Taskmaster ya está abierta. Activando la ventana existente...")
         check_socket.write(b"ACTIVATE")
         check_socket.waitForBytesWritten(400)
         check_socket.disconnectFromServer()
@@ -69,7 +69,6 @@ def main() -> int:
     local_server = QLocalServer()
     if not local_server.listen(server_name):
         logger.warning("No se pudo iniciar el servidor local de instancia única.")
-
 
     # Enable High-DPI scaling
     app.setHighDpiScaleFactorRoundingPolicy(
@@ -82,16 +81,16 @@ def main() -> int:
     settings = load_settings()
 
     # ------------------------------------------------------------------
-    # Apply initial stylesheet (dark by default)
+    # Apply initial stylesheet (dark Taskmaster by default)
     # ------------------------------------------------------------------
-    from ui.main_window import DARK_QSS, LIGHT_QSS
-    qss = DARK_QSS if settings.get("theme", "dark") == "dark" else LIGHT_QSS
-    app.setStyleSheet(qss)
+    from ui.tokens import TASKMASTER_QSS
+    app.setStyleSheet(TASKMASTER_QSS)
 
     # ------------------------------------------------------------------
     # Global font
     # ------------------------------------------------------------------
-    font = QFont("Segoe UI", 10)
+    font = QFont("Manrope", 10)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
     app.setFont(font)
 
     # ------------------------------------------------------------------

@@ -48,6 +48,19 @@ from ui.task_widget import TaskWidget
 from ui.settings_dialog import SettingsDialog
 from ui.dashboard_widget import DashboardWidget
 from ui.gamification_widget import GamificationWidget, LevelUpDialog
+from ui.mission_banner import MissionBannerWidget
+from ui.quick_add_widget import QuickAddWidget
+from ui.filter_bar_widget import FilterBarWidget
+from ui.empty_state_widget import EmptyStateWidget
+from ui.tokens import (
+    BG_DARK, BG_SIDEBAR, BG_SURFACE, BORDER_SUBTLE,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+    ACCENT_VIOLET, ACCENT_TURQUOISE, ACCENT_GOLD,
+    COLOR_SALUD, TASKMASTER_QSS, FONT_FAMILY, FONT_MONO,
+)
+from ui.sidebar_widget import SidebarWidget
+from ui.topbar_widget import TopBarWidget
+from ui.background_widget import DottedBackgroundWidget
 
 
 
@@ -434,33 +447,90 @@ class TaskEditDialog(QDialog):
 
 
 # ===========================================================================
-# Sidebar category button
+# Category Add Dialog
 # ===========================================================================
 
-class CategoryButton(QPushButton):
-    """A sidebar button for filtering by category."""
+class CategoryAddDialog(QDialog):
+    """Clean popup to add a category with name and color selection."""
 
-    def __init__(self, name: str, color: str, cat_id: Optional[int] = None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.cat_id = cat_id
-        self.setText(name)
-        self._color = color
-        self.setCheckable(True)
-        self.setFlat(True)
-        self._apply_style(False)
-
-    def _apply_style(self, active: bool) -> None:
-        bg = self._color if active else "transparent"
-        fg = "#1e1e2e" if active else "#cdd6f4"
+        self.setWindowTitle("Nueva Categoría")
+        self.setFixedSize(360, 220)
         self.setStyleSheet(
-            f"QPushButton {{ background: {bg}; color: {fg}; border-radius: 8px; "
-            f"  text-align: left; padding: 8px 14px; font-size: 13px; border: none; }}"
-            f"QPushButton:hover {{ background: {'#45475a' if not active else self._color}; }}"
+            f"""
+            QDialog {{
+                background-color: {BG_SURFACE};
+                color: {TEXT_PRIMARY};
+            }}
+            QLineEdit {{
+                background-color: #0F1420;
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER_SUBTLE};
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 13px;
+            }}
+            QLineEdit:focus {{
+                border-color: {ACCENT_VIOLET};
+            }}
+            """
         )
 
-    def setChecked(self, checked: bool) -> None:  # noqa: N802
-        super().setChecked(checked)
-        self._apply_style(checked)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        title_lbl = QLabel("Crear Nueva Categoría")
+        title_lbl.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {TEXT_PRIMARY};")
+        layout.addWidget(title_lbl)
+
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("Nombre de la categoría…")
+        layout.addWidget(self._name_edit)
+
+        color_lbl = QLabel("Color distintivo:")
+        color_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        layout.addWidget(color_lbl)
+
+        colors = ["#60A5FA", "#C084FC", "#34D399", "#F59E0B", "#EC4899", "#14B8A6", "#F43F5E", "#8B5CF6"]
+        self._selected_color = colors[0]
+
+        palette_layout = QHBoxLayout()
+        palette_layout.setSpacing(8)
+        self._color_btns = []
+
+        for c in colors:
+            btn = QPushButton()
+            btn.setFixedSize(26, 26)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                f"background-color: {c}; border-radius: 13px; border: 2px solid transparent;"
+            )
+            btn.clicked.connect(lambda checked=False, col=c, b=btn: self._select_color(col, b))
+            palette_layout.addWidget(btn)
+            self._color_btns.append((btn, c))
+
+        self._select_color(colors[0], self._color_btns[0][0])
+        layout.addLayout(palette_layout)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _select_color(self, color: str, active_btn: QPushButton) -> None:
+        self._selected_color = color
+        for btn, c in self._color_btns:
+            if btn is active_btn:
+                btn.setStyleSheet(f"background-color: {c}; border-radius: 13px; border: 2px solid #FFFFFF;")
+            else:
+                btn.setStyleSheet(f"background-color: {c}; border-radius: 13px; border: 2px solid transparent;")
+
+    def get_data(self) -> tuple[str, str]:
+        return self._name_edit.text().strip(), self._selected_color
 
 
 # ===========================================================================
@@ -468,7 +538,7 @@ class CategoryButton(QPushButton):
 # ===========================================================================
 
 class MainWindow(QMainWindow):
-    """Primary application window."""
+    """Primary application window for Taskmaster."""
 
     def __init__(
         self,
@@ -486,14 +556,8 @@ class MainWindow(QMainWindow):
         self._task_widgets: Dict[int, TaskWidget] = {}
         self._current_tasks: List[Dict[str, Any]] = []
 
-        # Voice button animation timer
-        self._voice_anim_timer = QTimer(self)
-        self._voice_anim_timer.setInterval(600)
-        self._voice_anim_timer.timeout.connect(self._pulse_voice_button)
-        self._voice_pulse_state = False
-
-        self.setWindowTitle("TaskVoice")
-        self.setMinimumSize(900, 620)
+        self.setWindowTitle("Taskmaster")
+        self.setMinimumSize(1060, 680)
 
         self._build_ui()
         self._setup_tray()
@@ -513,256 +577,183 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        # Central widget + root layout
         central = QWidget()
         self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
+        root_layout = QHBoxLayout(central)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # Toolbar
-        self._build_toolbar()
+        # 1. Sidebar (fixed 260px)
+        self._sidebar = SidebarWidget(self)
+        self._sidebar.view_changed.connect(self._on_sidebar_view_changed)
+        self._sidebar.category_selected.connect(self._on_sidebar_category_selected)
+        self._sidebar.add_category_requested.connect(self._on_add_category_dialog)
+        self._sidebar.player_card_clicked.connect(self._show_missions_view)
+        root_layout.addWidget(self._sidebar)
 
-        # Splitter: sidebar | task list
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
+        # 2. Main content area (right side)
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
-        # --- Sidebar ---
-        sidebar = QWidget()
-        sidebar.setFixedWidth(200)
-        sidebar.setObjectName("Sidebar")
-        sidebar.setStyleSheet("#Sidebar { background: #181825; }")
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(8, 12, 8, 12)
-        sidebar_layout.setSpacing(4)
+        # Top Bar
+        self._topbar = TopBarWidget(self)
+        self._topbar.search_changed.connect(self._on_search_changed)
+        self._topbar.theme_toggled.connect(self._toggle_theme)
+        right_layout.addWidget(self._topbar)
 
-        sidebar_title = QLabel("📋 Categorías")
-        sidebar_title.setStyleSheet("font-size: 12px; color: #6c7086; font-weight: 600; padding: 0 6px 6px 6px;")
-        sidebar_layout.addWidget(sidebar_title)
+        # Dotted background with StackedWidget
+        self._dotted_bg = DottedBackgroundWidget(self)
+        dotted_layout = QVBoxLayout(self._dotted_bg)
+        dotted_layout.setContentsMargins(0, 0, 0, 0)
+        dotted_layout.setSpacing(0)
 
-        self._sidebar_layout = QVBoxLayout()
-        self._sidebar_layout.setSpacing(2)
-        sidebar_layout.addLayout(self._sidebar_layout)
-        sidebar_layout.addStretch()
-
-        splitter.addWidget(sidebar)
-
-        # --- Task list area ---
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.setSpacing(8)
-
-        # Header row inside task panel
-        header_row = QHBoxLayout()
-        self._panel_title = QLabel("Todas las tareas")
-        self._panel_title.setStyleSheet("font-size: 18px; font-weight: 700; color: #cdd6f4;")
-        header_row.addWidget(self._panel_title)
-        header_row.addStretch()
-
-        self._show_completed_cb = QCheckBox("Mostrar completadas")
-        self._show_completed_cb.stateChanged.connect(self._refresh_tasks)
-        header_row.addWidget(self._show_completed_cb)
-
-        right_layout.addLayout(header_row)
-
-        # Scroll area for task cards
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self._tasks_container = QWidget()
-        self._tasks_layout = QVBoxLayout(self._tasks_container)
-        self._tasks_layout.setContentsMargins(0, 0, 0, 0)
-        self._tasks_layout.setSpacing(4)
-        self._tasks_layout.addStretch()
-
-        scroll.setWidget(self._tasks_container)
-        right_layout.addWidget(scroll)
-
-        # Empty state label
-        self._empty_label = QLabel("No hay tareas. ¡Crea una con Ctrl+N!")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("font-size: 16px; color: #45475a; margin: 40px;")
-        right_layout.addWidget(self._empty_label)
-        self._empty_label.hide()
-
-        splitter.addWidget(right_panel)
-        splitter.setSizes([200, 700])
-
-        # Stacked view: 0 = Tasks list, 1 = Graphical Dashboard, 2 = Gamification & Missions Hub
         self._stack = QStackedWidget()
-        self._stack.addWidget(splitter)
+
+        # Page 0: Tasks View
+        self._tasks_page = QWidget()
+        tasks_page_layout = QVBoxLayout(self._tasks_page)
+        tasks_page_layout.setContentsMargins(24, 16, 24, 16)
+        tasks_page_layout.setSpacing(16)
+
+        # Scroll area for tasks page
+        tasks_scroll = QScrollArea()
+        tasks_scroll.setWidgetResizable(True)
+        tasks_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tasks_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tasks_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        tasks_scroll_content = QWidget()
+        tasks_scroll_content.setStyleSheet("background: transparent;")
+        self._tasks_content_layout = QVBoxLayout(tasks_scroll_content)
+        self._tasks_content_layout.setContentsMargins(0, 0, 8, 0)
+        self._tasks_content_layout.setSpacing(14)
+
+        # Banner "Misión del día" (~170px)
+        self._mission_banner = MissionBannerWidget(self)
+        self._tasks_content_layout.addWidget(self._mission_banner)
+
+        # Quick capture bar
+        self._quick_add = QuickAddWidget(self)
+        self._quick_add.add_task_requested.connect(self._on_quick_add_task)
+        self._quick_add.voice_toggled.connect(self._toggle_voice)
+        self._tasks_content_layout.addWidget(self._quick_add)
+
+        # Filter bar (Todas / Hoy / Prioridad alta + Mostrar completadas)
+        self._filter_bar = FilterBarWidget(self)
+        self._filter_bar.filter_changed.connect(self._on_filter_bar_changed)
+        self._filter_bar.show_completed_toggled.connect(self._on_show_completed_toggled)
+        self._tasks_content_layout.addWidget(self._filter_bar)
+
+        # Section: HOY
+        self._section_today_header = self._create_section_header("HOY", 0)
+        self._tasks_content_layout.addWidget(self._section_today_header)
+        self._section_today_container = QVBoxLayout()
+        self._section_today_container.setSpacing(8)
+        self._tasks_content_layout.addLayout(self._section_today_container)
+
+        # Section: PRÓXIMAS
+        self._section_upcoming_header = self._create_section_header("PRÓXIMAS", 0)
+        self._tasks_content_layout.addWidget(self._section_upcoming_header)
+        self._section_upcoming_container = QVBoxLayout()
+        self._section_upcoming_container.setSpacing(8)
+        self._tasks_content_layout.addLayout(self._section_upcoming_container)
+
+        # Empty state widget
+        self._empty_state = EmptyStateWidget(self)
+        self._tasks_content_layout.addWidget(self._empty_state)
+        self._empty_state.hide()
+
+        self._tasks_content_layout.addStretch()
+        tasks_scroll.setWidget(tasks_scroll_content)
+        tasks_page_layout.addWidget(tasks_scroll)
+
+        self._stack.addWidget(self._tasks_page)
+
+        # Page 1: Dashboard
         self._dashboard_view = DashboardWidget(self._db, parent=self)
         self._dashboard_view.data_reset.connect(self._on_dashboard_reset)
         self._stack.addWidget(self._dashboard_view)
+
+        # Page 2: Gamification / Missions
         self._gamification_view = GamificationWidget(self._db, parent=self)
         self._gamification_view.profile_updated.connect(self._refresh_gamification_hud)
         self._stack.addWidget(self._gamification_view)
 
-        root_layout.addWidget(self._stack)
+        dotted_layout.addWidget(self._stack)
+        right_layout.addWidget(self._dotted_bg, stretch=1)
 
+        # Status Bar
+        self._build_status_bar(right_layout)
 
+        root_layout.addWidget(right_container, stretch=1)
 
-        # Status bar
-        self._status_bar = QStatusBar()
-        self.setStatusBar(self._status_bar)
-        self._status_total   = QLabel()
-        self._status_done    = QLabel()
-        self._status_voice   = QLabel("🎙 Voz: inactiva")
-        self._status_bar.addPermanentWidget(self._status_total)
-        self._status_bar.addPermanentWidget(self._status_done)
-        self._status_bar.addPermanentWidget(self._status_voice)
-
-    def _build_toolbar(self) -> None:
-        tb = QToolBar("Principal")
-        tb.setMovable(False)
-        tb.setIconSize(QSize(18, 18))
-        tb.setStyleSheet(
-            "QToolBar { background: #181825; border-bottom: 1px solid #313244; padding: 6px 10px; spacing: 6px; }"
+    def _build_status_bar(self, parent_layout: QVBoxLayout) -> None:
+        bar = QWidget()
+        bar.setFixedHeight(34)
+        bar.setStyleSheet(
+            f"background-color: {BG_SIDEBAR}; border-top: 1px solid {BORDER_SUBTLE};"
         )
-        self.addToolBar(tb)
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(16, 0, 16, 0)
+        bar_layout.setSpacing(12)
 
-        # New task button
-        self._new_task_btn = QPushButton("＋ Nueva Tarea")
-        self._new_task_btn.setStyleSheet(
-            "QPushButton { background: #7c3aed; color: #fff; border-radius: 8px; padding: 6px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #6d28d9; }"
+        # Left: "Total N · Activas N · Completadas hoy N"
+        self._status_counts = QLabel("Total 0 · Activas 0 · Completadas hoy 0")
+        self._status_counts.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 500;"
         )
-        self._new_task_btn.clicked.connect(self._open_new_task)
-        tb.addWidget(self._new_task_btn)
+        bar_layout.addWidget(self._status_counts)
 
-        tb.addSeparator()
+        bar_layout.addStretch()
 
-        # Voice button
-        self._voice_btn = QPushButton("🎙 Voz")
-        self._voice_btn.setCheckable(True)
-        self._voice_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; }"
-            "QPushButton:checked { background: #dc2626; color: #fff; }"
-            "QPushButton:hover { background: #45475a; }"
+        # Right: green dot + "Voz lista · di «Oye Taskmaster»"
+        self._voice_status_dot = QLabel("●")
+        self._voice_status_dot.setStyleSheet("color: #22C55E; font-size: 10px;")
+        bar_layout.addWidget(self._voice_status_dot)
+
+        self._voice_status_lbl = QLabel("Voz lista · di «Oye Taskmaster»")
+        self._voice_status_lbl.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 500;"
         )
-        self._voice_btn.toggled.connect(self._toggle_voice)
-        tb.addWidget(self._voice_btn)
+        bar_layout.addWidget(self._voice_status_lbl)
 
-        tb.addSeparator()
+        parent_layout.addWidget(bar)
 
-        # View Switcher (Lista vs Dashboard vs Misiones)
-        self._btn_view_tasks = QPushButton("📋 Tareas")
-        self._btn_view_tasks.setCheckable(True)
-        self._btn_view_tasks.setChecked(True)
-        self._btn_view_tasks.setStyleSheet(
-            "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
-            "QPushButton:hover { background: #0369a1; }"
+    def _create_section_header(self, title: str, count: int) -> QWidget:
+        w = QWidget()
+        w.setFixedHeight(28)
+        w.setStyleSheet("background: transparent;")
+        l = QHBoxLayout(w)
+        l.setContentsMargins(2, 0, 2, 0)
+        l.setSpacing(8)
+
+        lbl = QLabel(f"{title} ({count})")
+        lbl.setObjectName(f"header_label_{title}")
+        lbl.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
+        lbl.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px;"
         )
-        self._btn_view_tasks.clicked.connect(self._show_tasks_view)
-        tb.addWidget(self._btn_view_tasks)
+        l.addWidget(lbl)
 
-        self._btn_view_dashboard = QPushButton("📊 Dashboard")
-        self._btn_view_dashboard.setCheckable(True)
-        self._btn_view_dashboard.setChecked(False)
-        self._btn_view_dashboard.setStyleSheet(
-            "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-            "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
-        )
-        self._btn_view_dashboard.clicked.connect(self._show_dashboard_view)
-        tb.addWidget(self._btn_view_dashboard)
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet(f"border: none; border-top: 1px solid {BORDER_SUBTLE};")
+        l.addWidget(line, stretch=1)
+        return w
 
-        self._btn_view_missions = QPushButton("⚔️ Misiones")
-        self._btn_view_missions.setCheckable(True)
-        self._btn_view_missions.setChecked(False)
-        self._btn_view_missions.setStyleSheet(
-            "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-            "QPushButton:hover { background: #1e283d; color: #ffd166; }"
-        )
-        self._btn_view_missions.clicked.connect(self._show_missions_view)
-        tb.addWidget(self._btn_view_missions)
-
-        tb.addSeparator()
-
-        # Mini Commander HUD in Toolbar
-        self._hud_frame = QFrame()
-        self._hud_frame.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._hud_frame.setToolTip("Haz clic para abrir el Centro de Misiones & RPG")
-        self._hud_frame.setStyleSheet(
-            "QFrame { background: #101624; border: 1px solid #1f2d42; border-radius: 6px; padding: 2px 8px; }"
-            "QFrame:hover { border-color: #00f0ff; background: #151e30; }"
-        )
-        hud_l = QHBoxLayout(self._hud_frame)
-        hud_l.setContentsMargins(6, 2, 6, 2)
-        hud_l.setSpacing(6)
-
-        self._hud_lvl_badge = QLabel("⚔️ L1")
-        self._hud_lvl_badge.setStyleSheet("color: #ffd166; font-weight: 800; font-size: 11px;")
-        hud_l.addWidget(self._hud_lvl_badge)
-
-        self._hud_rank_lbl = QLabel("Recluta Terran")
-        self._hud_rank_lbl.setStyleSheet("color: #00f0ff; font-weight: 700; font-size: 11px;")
-        hud_l.addWidget(self._hud_rank_lbl)
-
-        self._hud_xp_bar = QProgressBar()
-        self._hud_xp_bar.setRange(0, 100)
-        self._hud_xp_bar.setValue(0)
-        self._hud_xp_bar.setFixedSize(60, 7)
-        self._hud_xp_bar.setTextVisible(False)
-        self._hud_xp_bar.setStyleSheet(
-            "QProgressBar { background: #0a0d14; border: 1px solid #1f2d42; border-radius: 3px; }"
-            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00f0ff); border-radius: 2px; }"
-        )
-        hud_l.addWidget(self._hud_xp_bar)
-
-        self._hud_frame.mousePressEvent = lambda ev: self._show_missions_view()
-        tb.addWidget(self._hud_frame)
-
-        tb.addSeparator()
-
-
-        # Search bar
-        self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("🔍 Buscar tarea…")
-        self._search_edit.setFixedWidth(220)
-        self._search_edit.textChanged.connect(self._on_search_changed)
-        tb.addWidget(self._search_edit)
-
-        # Filter dropdown
-        self._filter_combo = QComboBox()
-        self._filter_combo.addItems(["Todas", "Alta prioridad", "Vencidas", "Hoy"])
-        self._filter_combo.currentIndexChanged.connect(self._refresh_tasks)
-        tb.addWidget(self._filter_combo)
-
-        # Spacer
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        tb.addWidget(spacer)
-
-        # Theme toggle
-        self._theme_btn = QPushButton("☀")
-        self._theme_btn.setFixedSize(34, 34)
-        self._theme_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; font-size: 16px; }"
-            "QPushButton:hover { background: #45475a; }"
-        )
-        self._theme_btn.clicked.connect(self._toggle_theme)
-        tb.addWidget(self._theme_btn)
-
-        # Settings
-        settings_btn = QPushButton("⚙")
-        settings_btn.setFixedSize(34, 34)
-        settings_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; font-size: 16px; }"
-            "QPushButton:hover { background: #45475a; }"
-        )
-        settings_btn.clicked.connect(self._open_settings)
-        tb.addWidget(settings_btn)
+    def _update_section_header(self, header_widget: QWidget, title: str, count: int) -> None:
+        lbl = header_widget.findChild(QLabel, f"header_label_{title}")
+        if lbl:
+            lbl.setText(f"{title} ({count})")
 
     # ------------------------------------------------------------------
-    # System tray
+    # System tray & Shortcuts
     # ------------------------------------------------------------------
 
     def _setup_tray(self) -> None:
         self._tray = QSystemTrayIcon(self)
-        # Use a default icon if icon.ico is missing
         icon_path = Path(__file__).parent.parent / "assets" / "icon.ico"
         if icon_path.exists():
             self._tray.setIcon(QIcon(str(icon_path)))
@@ -773,13 +764,13 @@ class MainWindow(QMainWindow):
 
         tray_menu = QMenu()
         tray_menu.setStyleSheet(
-            "QMenu { background: #313244; color: #cdd6f4; }"
-            "QMenu::item:selected { background: #7c3aed; }"
+            f"QMenu {{ background: {BG_SURFACE}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_SUBTLE}; }}"
+            f"QMenu::item:selected {{ background: {ACCENT_VIOLET}; }}"
         )
-        show_action    = tray_menu.addAction("Mostrar TaskVoice")
+        show_action = tray_menu.addAction("Mostrar Taskmaster")
         new_task_action = tray_menu.addAction("➕ Nueva Tarea")
         tray_menu.addSeparator()
-        quit_action    = tray_menu.addAction("Salir")
+        quit_action = tray_menu.addAction("Salir")
 
         show_action.triggered.connect(self.show)
         new_task_action.triggered.connect(self._open_new_task)
@@ -794,19 +785,20 @@ class MainWindow(QMainWindow):
             self.show()
             self.raise_()
 
-    # ------------------------------------------------------------------
-    # Shortcuts
-    # ------------------------------------------------------------------
-
     def _setup_shortcuts(self) -> None:
         new_task = QAction("Nueva Tarea", self)
         new_task.setShortcut(QKeySequence("Ctrl+N"))
         new_task.triggered.connect(self._open_new_task)
         self.addAction(new_task)
 
+        focus_search = QAction("Buscar", self)
+        focus_search.setShortcut(QKeySequence("Ctrl+K"))
+        focus_search.triggered.connect(self._topbar.focus_search)
+        self.addAction(focus_search)
+
         toggle_voice = QAction("Toggle Voz", self)
         toggle_voice.setShortcut(QKeySequence("Ctrl+M"))
-        toggle_voice.triggered.connect(lambda: self._voice_btn.toggle())
+        toggle_voice.triggered.connect(lambda: self._quick_add._on_mic_clicked())
         self.addAction(toggle_voice)
 
     # ------------------------------------------------------------------
@@ -814,14 +806,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _init_voice(self) -> None:
-        engine      = self._settings.get("voice_engine", "google")
-        model_path  = self._settings.get("vosk_model_path", "")
+        engine = self._settings.get("voice_engine", "google")
+        model_path = self._settings.get("vosk_model_path", "")
         self._voice_mgr = VoiceManager(engine=engine, vosk_model_path=model_path, parent=self)
         self._voice_mgr.command_recognized.connect(self._on_voice_command)
         self._voice_mgr.listening_state_changed.connect(self._on_listening_changed)
         self._voice_mgr.error_occurred.connect(self._on_voice_error)
         self._voice_mgr.raw_text_recognised.connect(
-            lambda t: self.statusBar().showMessage(f'Escuchado: "{t}"', 4000)
+            lambda t: self._voice_status_lbl.setText(f'Escuchado: "{t}"')
         )
 
     def _toggle_voice(self, checked: bool) -> None:
@@ -834,28 +826,24 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _on_listening_changed(self, listening: bool) -> None:
-        self._voice_btn.setChecked(listening)
-        self._status_voice.setText("🎙 Voz: escuchando" if listening else "🎙 Voz: inactiva")
+        self._quick_add.set_listening(listening)
         if listening:
-            self._voice_anim_timer.start()
+            self._voice_status_dot.setStyleSheet("color: #EF4444; font-size: 10px;")
+            self._voice_status_lbl.setText("🎙 Escuchando...")
         else:
-            self._voice_anim_timer.stop()
-            self._voice_btn.setText("🎙 Voz")
-
-    def _pulse_voice_button(self) -> None:
-        self._voice_pulse_state = not self._voice_pulse_state
-        self._voice_btn.setText("🔴 Escuchando…" if self._voice_pulse_state else "🎙 Escuchando…")
+            self._voice_status_dot.setStyleSheet("color: #22C55E; font-size: 10px;")
+            self._voice_status_lbl.setText("Voz lista · di «Oye Taskmaster»")
 
     @pyqtSlot(str)
     def _on_voice_error(self, message: str) -> None:
-        self.statusBar().showMessage(f"⚠ Voz: {message}", 6000)
-        self._voice_btn.setChecked(False)
+        self._voice_status_lbl.setText(f"⚠ Voz: {message}")
+        self._quick_add.set_listening(False)
 
     @pyqtSlot(str, dict)
     def _on_voice_command(self, cmd_type: str, params: dict) -> None:
         title = params.get("title", "")
 
-        # Record voice action in RPG progression
+        # Record action in RPG progression
         v_res = self._db.record_action("voice_command", {"command": cmd_type})
         self._refresh_gamification_hud()
         if hasattr(self, "_gamification_view"):
@@ -865,15 +853,16 @@ class MainWindow(QMainWindow):
             dlg.exec()
         elif v_res.get("newly_completed_quests"):
             q_titles = ", ".join(q["title"] for q in v_res["newly_completed_quests"])
-            self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}!", 5000)
+            self._voice_status_lbl.setText(f"🎯 ¡Misión cumplida: {q_titles}!")
 
         if cmd_type == "add_task":
             if title:
                 priority = params.get("priority", 2)
-                self._db.add_task(title=title, priority=priority)
+                self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
                 self._refresh_tasks()
+                self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                self.statusBar().showMessage(f'🎙 Tarea añadida [{prio_name}]: "{title}"', 5000)
+                self._voice_status_lbl.setText(f'🎙 Tarea añadida [{prio_name}]: "{title}"')
         elif cmd_type == "complete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -883,20 +872,20 @@ class MainWindow(QMainWindow):
                 if 1 <= target_num <= len(self._current_tasks):
                     task_to_complete = self._current_tasks[target_num - 1]
                     self._on_task_completed(task_to_complete["id"])
-                    self.statusBar().showMessage(
-                        f'✅ Tarea #{target_num} completada: "{task_to_complete["title"]}"', 5000
+                    self._voice_status_lbl.setText(
+                        f'✅ Tarea #{target_num} completada: "{task_to_complete["title"]}"'
                     )
                 else:
-                    self.statusBar().showMessage(
-                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.', 5000
+                    self._voice_status_lbl.setText(
+                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.'
                     )
             else:
                 tasks = self._db.get_all_tasks(search=title)
                 if tasks:
                     self._on_task_completed(tasks[0]["id"])
-                    self.statusBar().showMessage(f'✅ Completada: "{tasks[0]["title"]}"', 4000)
+                    self._voice_status_lbl.setText(f'✅ Completada: "{tasks[0]["title"]}"')
                 else:
-                    self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
+                    self._voice_status_lbl.setText(f'⚠ No se encontró la tarea: "{title}"')
         elif cmd_type == "delete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -907,216 +896,163 @@ class MainWindow(QMainWindow):
                     task_to_delete = self._current_tasks[target_num - 1]
                     self._db.delete_task(task_to_delete["id"])
                     self._refresh_tasks()
-                    self.statusBar().showMessage(
-                        f'🗑 Tarea #{target_num} eliminada: "{task_to_delete["title"]}"', 5000
+                    self._refresh_categories_sidebar()
+                    self._voice_status_lbl.setText(
+                        f'🗑 Tarea #{target_num} eliminada: "{task_to_delete["title"]}"'
                     )
                 else:
-                    self.statusBar().showMessage(
-                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.', 5000
+                    self._voice_status_lbl.setText(
+                        f'⚠ Tarea #{target_num} no encontrada. Hay {len(self._current_tasks)} tareas visibles.'
                     )
             else:
                 tasks = self._db.get_all_tasks(search=title)
                 if tasks:
                     self._db.delete_task(tasks[0]["id"])
                     self._refresh_tasks()
-                    self.statusBar().showMessage(f'🗑 Eliminada: "{tasks[0]["title"]}"', 4000)
+                    self._refresh_categories_sidebar()
+                    self._voice_status_lbl.setText(f'🗑 Eliminada: "{tasks[0]["title"]}"')
                 else:
-                    self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
+                    self._voice_status_lbl.setText(f'⚠ No se encontró la tarea: "{title}"')
 
         elif cmd_type in ("show_progress", "show_dashboard"):
             self._show_dashboard_view()
-            self.statusBar().showMessage("📊 Mostrando Dashboard gráfico", 4000)
+            self._voice_status_lbl.setText("📊 Mostrando Dashboard gráfico")
         elif cmd_type == "show_missions":
             self._show_missions_view()
-            self.statusBar().showMessage("⚔️ Mostrando Centro de Misiones & RPG", 4000)
+            self._voice_status_lbl.setText("⚔️ Mostrando Centro de Misiones & RPG")
         elif cmd_type == "show_level":
             prof = self._db.get_gamification_profile()
-            self.statusBar().showMessage(
-                f"⚔️ Nivel {prof['level']} – {prof['rank']['title']} | XP: {prof['xp']}/{prof['xp_needed']} ({prof['xp_progress_pct']}%) | Racha: {prof['streak_days']} días",
-                7000
+            self._voice_status_lbl.setText(
+                f"⚔️ Nivel {prof['level']} – {prof['rank']['title']} | XP: {prof['xp']}/{prof['xp_needed']}"
             )
         elif cmd_type == "show_tasks":
             self._show_tasks_view()
-            self.statusBar().showMessage("📋 Mostrando lista de tareas", 4000)
+            self._voice_status_lbl.setText("📋 Mostrando lista de tareas")
         else:
-            # ── Fallback: cualquier texto que no sea un comando conocido
-            # se trata directamente como título de nueva tarea ──────────
             raw = params.get("raw", "").strip()
             if raw:
                 title = params.get("title", raw)
                 priority = params.get("priority", 2)
-                self._db.add_task(title=title, priority=priority)
+                self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
                 self._refresh_tasks()
+                self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                self.statusBar().showMessage(f'🎙 Tarea creada [{prio_name}]: "{title}"', 5000)
+                self._voice_status_lbl.setText(f'🎙 Tarea creada [{prio_name}]: "{title}"')
 
     # ------------------------------------------------------------------
-    # View Switching (Tasks List vs Dashboard vs Missions)
+    # View Switching (Tasks vs Dashboard vs Missions)
     # ------------------------------------------------------------------
+
+    def _on_sidebar_view_changed(self, index: int) -> None:
+        if index == 0:
+            self._show_tasks_view()
+        elif index == 1:
+            self._show_dashboard_view()
+        elif index == 2:
+            self._show_missions_view()
 
     def _show_tasks_view(self) -> None:
-        if hasattr(self, "_stack"):
-            self._stack.setCurrentIndex(0)
-        if hasattr(self, "_btn_view_tasks"):
-            self._btn_view_tasks.setChecked(True)
-            self._btn_view_tasks.setStyleSheet(
-                "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
-                "QPushButton:hover { background: #0369a1; }"
-            )
-        if hasattr(self, "_btn_view_dashboard"):
-            self._btn_view_dashboard.setChecked(False)
-            self._btn_view_dashboard.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
-            )
-        if hasattr(self, "_btn_view_missions"):
-            self._btn_view_missions.setChecked(False)
-            self._btn_view_missions.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #ffd166; }"
-            )
+        self._stack.setCurrentIndex(0)
+        self._sidebar.set_nav_index(0)
+        self._update_topbar_title()
         self._refresh_tasks()
         self._refresh_gamification_hud()
 
     def _show_dashboard_view(self) -> None:
-        if hasattr(self, "_stack"):
-            self._stack.setCurrentIndex(1)
-        if hasattr(self, "_btn_view_dashboard"):
-            self._btn_view_dashboard.setChecked(True)
-            self._btn_view_dashboard.setStyleSheet(
-                "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
-                "QPushButton:hover { background: #0369a1; }"
-            )
-        if hasattr(self, "_btn_view_tasks"):
-            self._btn_view_tasks.setChecked(False)
-            self._btn_view_tasks.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
-            )
-        if hasattr(self, "_btn_view_missions"):
-            self._btn_view_missions.setChecked(False)
-            self._btn_view_missions.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #ffd166; }"
-            )
+        self._stack.setCurrentIndex(1)
+        self._sidebar.set_nav_index(1)
+        self._topbar.set_title("Dashboard")
         if hasattr(self, "_dashboard_view"):
             self._dashboard_view.refresh_data()
-        self.statusBar().showMessage("📊 Mostrando Dashboard estadístico", 3000)
 
     def _show_missions_view(self) -> None:
-        if hasattr(self, "_stack"):
-            self._stack.setCurrentIndex(2)
-        if hasattr(self, "_btn_view_missions"):
-            self._btn_view_missions.setChecked(True)
-            self._btn_view_missions.setStyleSheet(
-                "QPushButton { background: #d97706; color: #090b10; border-radius: 6px; padding: 6px 14px; font-weight: 800; border: 1px solid #ffd166; }"
-                "QPushButton:hover { background: #f59e0b; }"
-            )
-        if hasattr(self, "_btn_view_tasks"):
-            self._btn_view_tasks.setChecked(False)
-            self._btn_view_tasks.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
-            )
-        if hasattr(self, "_btn_view_dashboard"):
-            self._btn_view_dashboard.setChecked(False)
-            self._btn_view_dashboard.setStyleSheet(
-                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
-            )
+        self._stack.setCurrentIndex(2)
+        self._sidebar.set_nav_index(2)
+        self._topbar.set_title("Misiones y Progreso")
         if hasattr(self, "_gamification_view"):
             self._gamification_view.refresh_data()
         self._refresh_gamification_hud()
-        self.statusBar().showMessage("⚔️ Centro de Misiones & Progresión de Rango abierto", 3000)
+
+    def _update_topbar_title(self) -> None:
+        if self._active_category_id is None:
+            self._topbar.set_title("Todas las tareas")
+        else:
+            categories = self._db.get_categories()
+            cat = next((c for c in categories if c["id"] == self._active_category_id), None)
+            if cat:
+                self._topbar.set_title(cat["name"])
+            else:
+                self._topbar.set_title("Todas las tareas")
+
+    def _on_sidebar_category_selected(self, cat_id: Optional[int]) -> None:
+        self._active_category_id = cat_id
+        if self._stack.currentIndex() != 0:
+            self._show_tasks_view()
+        else:
+            self._update_topbar_title()
+            self._refresh_tasks()
+
+    def _on_add_category_dialog(self) -> None:
+        dlg = CategoryAddDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            name, color = dlg.get_data()
+            if name:
+                self._db.add_category(name, color)
+                self._refresh_categories_sidebar()
+                self._voice_status_lbl.setText(f'Categoría "{name}" creada.')
 
     def _refresh_gamification_hud(self) -> None:
-        """Update toolbar mini Commander HUD with latest level and XP."""
-        if not hasattr(self, "_hud_lvl_badge"):
-            return
+        """Update sidebar player card with latest level and XP."""
         profile = self._db.get_gamification_profile()
-        rank = profile["rank"]
-        self._hud_lvl_badge.setText(f"{rank['icon']} L{profile['level']}")
-        self._hud_rank_lbl.setText(rank["title"])
-        self._hud_xp_bar.setValue(int(profile["xp_progress_pct"]))
-        tooltip = (
-            f"Comandante: {rank['title']} (Nivel {profile['level']})\n"
-            f"XP: {profile['xp']} / {profile['xp_needed']} ({profile['xp_progress_pct']}%)\n"
-            f"Racha: {profile['streak_days']} días\n"
-            f"Haz clic para abrir el Centro de Misiones"
-        )
-        self._hud_frame.setToolTip(tooltip)
-
-        unclaimed = profile.get("unclaimed_quests", 0)
-        if hasattr(self, "_btn_view_missions"):
-            if self._stack.currentIndex() != 2:
-                if unclaimed > 0:
-                    self._btn_view_missions.setText(f"⚔️ Misiones ({unclaimed})")
-                    self._btn_view_missions.setStyleSheet(
-                        "QPushButton { background: #261a08; color: #ffd166; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #d97706; }"
-                        "QPushButton:hover { background: #3b2508; }"
-                    )
-                else:
-                    self._btn_view_missions.setText("⚔️ Misiones")
-                    self._btn_view_missions.setStyleSheet(
-                        "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
-                        "QPushButton:hover { background: #1e283d; color: #ffd166; }"
-                    )
+        self._sidebar.update_player_card(profile)
 
     def _on_dashboard_reset(self) -> None:
         self._refresh_tasks()
+        self._refresh_categories_sidebar()
         self._refresh_gamification_hud()
         if hasattr(self, "_gamification_view"):
             self._gamification_view.refresh_data()
-        self.statusBar().showMessage("🔄 Tareas y estadísticas reiniciadas", 4000)
-
-
-
+        self._voice_status_lbl.setText("🔄 Tareas y estadísticas reiniciadas")
 
     # ------------------------------------------------------------------
     # Category sidebar
     # ------------------------------------------------------------------
 
     def _refresh_categories_sidebar(self) -> None:
-        # Remove old buttons
-        while self._sidebar_layout.count():
-            item = self._sidebar_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        counts = {}
+        all_uncompleted = self._db.get_all_tasks(include_completed=False)
+        counts[None] = len(all_uncompleted)
+        for t in all_uncompleted:
+            cid = t.get("category_id")
+            counts[cid] = counts.get(cid, 0) + 1
+        self._sidebar.update_categories(self._db.get_categories(), counts)
 
-        # "All" button
-        all_btn = CategoryButton("📋 Todas", "#7c3aed", cat_id=None)
-        all_btn.setChecked(self._active_category_id is None)
-        all_btn.clicked.connect(lambda: self._set_category_filter(None, all_btn))
-        self._sidebar_layout.addWidget(all_btn)
-        self._all_cat_btn = all_btn
+    # ------------------------------------------------------------------
+    # Task list & sections
+    # ------------------------------------------------------------------
 
-        # Per-category buttons
-        self._cat_buttons: List[CategoryButton] = [all_btn]
-        for cat in self._db.get_categories():
-            btn = CategoryButton(f"● {cat['name']}", cat["color"], cat_id=cat["id"])
-            btn.setChecked(self._active_category_id == cat["id"])
-            btn.clicked.connect(
-                lambda checked, c=cat["id"], b=btn: self._set_category_filter(c, b)
-            )
-            self._sidebar_layout.addWidget(btn)
-            self._cat_buttons.append(btn)
+    def _on_quick_add_task(self, text: str) -> None:
+        if not text:
+            return
+        self._db.add_task(title=text, priority=2, category_id=self._active_category_id)
+        self._refresh_tasks()
+        self._refresh_categories_sidebar()
+        self._refresh_gamification_hud()
+        self._voice_status_lbl.setText(f'Tarea agregada: "{text}"')
 
-    def _set_category_filter(self, cat_id: Optional[int], clicked_btn: CategoryButton) -> None:
-        self._active_category_id = cat_id
-        for btn in self._cat_buttons:
-            btn.setChecked(btn is clicked_btn)
-        cat_label = "Todas las tareas" if cat_id is None else clicked_btn.text().lstrip("● ")
-        self._panel_title.setText(cat_label)
+    def _on_filter_bar_changed(self, filter_mode: str) -> None:
         self._refresh_tasks()
 
-    # ------------------------------------------------------------------
-    # Task list
-    # ------------------------------------------------------------------
+    def _on_show_completed_toggled(self, checked: bool) -> None:
+        self._refresh_tasks()
+
+    def _on_search_changed(self, text: str) -> None:
+        self._refresh_tasks()
 
     def _refresh_tasks(self) -> None:
-        search   = self._search_edit.text().strip() or None
-        inc_done = self._show_completed_cb.isChecked()
-        filter_idx = self._filter_combo.currentIndex()
+        search   = self._topbar.search_text() or None
+        inc_done = self._filter_bar.is_showing_completed()
+        filter_mode = self._filter_bar.current_filter()
 
         tasks = self._db.get_all_tasks(
             category_id=self._active_category_id,
@@ -1124,67 +1060,106 @@ class MainWindow(QMainWindow):
             search=search,
         )
 
-        # Apply extra filter
-        if filter_idx == 1:   # high priority
+        if filter_mode == "high":
             tasks = [t for t in tasks if t["priority"] == 3]
-        elif filter_idx == 2: # overdue
-            from datetime import datetime
-            now = datetime.now().isoformat(sep=" ", timespec="seconds")
-            tasks = [t for t in tasks if t.get("due_date") and t["due_date"] < now and not t["completed"]]
-        elif filter_idx == 3: # due today
+        elif filter_mode == "today":
             from datetime import date
-            today = date.today().isoformat()
-            tasks = [t for t in tasks if t.get("due_date") and t["due_date"].startswith(today)]
+            today_str = date.today().isoformat()
+            tasks = [
+                t for t in tasks
+                if (t.get("due_date") and t["due_date"].startswith(today_str))
+                or (not t.get("due_date") and t.get("created_at", "").startswith(today_str))
+            ]
 
-        # Clear existing widgets
+        # Clear existing task widgets
         self._task_widgets.clear()
-        while self._tasks_layout.count() > 1:  # keep the trailing stretch
-            item = self._tasks_layout.takeAt(0)
+        while self._section_today_container.count() > 0:
+            item = self._section_today_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        while self._section_upcoming_container.count() > 0:
+            item = self._section_upcoming_container.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        if not tasks:
-            self._empty_label.show()
-        else:
-            self._empty_label.hide()
+        # Classify into HOY and PRÓXIMAS
+        from datetime import date
+        today_str = date.today().isoformat()
+
+        today_list = []
+        upcoming_list = []
+
+        for t in tasks:
+            due = t.get("due_date")
+            created = t.get("created_at", "")
+            if (due and (due.startswith(today_str) or due < today_str)) or (not due and created.startswith(today_str)):
+                today_list.append(t)
+            else:
+                upcoming_list.append(t)
 
         self._current_tasks = list(tasks)
-        for idx, task in enumerate(tasks, start=1):
-            subtasks = self._db.get_subtasks(task["id"])
-            widget = TaskWidget(task, subtasks, index_number=idx)
-            widget.task_completed.connect(self._on_task_completed)
-            widget.task_uncompleted.connect(self._on_task_uncompleted)
-            widget.task_deleted.connect(self._on_task_deleted)
-            widget.task_edit_requested.connect(self._on_task_edit)
-            widget.subtask_toggled.connect(self._on_subtask_toggled)
-            widget.add_subtask_requested.connect(self._on_add_subtask)
-            widget.move_category_requested.connect(self._on_move_category)
-            self._tasks_layout.insertWidget(self._tasks_layout.count() - 1, widget)
-            self._task_widgets[task["id"]] = widget
 
+        # Update headers
+        self._update_section_header(self._section_today_header, "HOY", len(today_list))
+        self._update_section_header(self._section_upcoming_header, "PRÓXIMAS", len(upcoming_list))
+
+        self._section_today_header.setVisible(len(today_list) > 0)
+        self._section_upcoming_header.setVisible(len(upcoming_list) > 0)
+
+        for task in today_list:
+            widget = self._create_task_widget(task)
+            self._section_today_container.addWidget(widget)
+
+        for task in upcoming_list:
+            widget = self._create_task_widget(task)
+            self._section_upcoming_container.addWidget(widget)
+
+        # Empty state
+        if len(tasks) == 0:
+            self._empty_state.show()
+        else:
+            self._empty_state.hide()
+
+        # Update Daily Mission Banner with all tasks of today
+        all_today_tasks = [
+            t for t in self._db.get_all_tasks(include_completed=True)
+            if (t.get("due_date") and t["due_date"].startswith(today_str))
+            or (t.get("created_at", "").startswith(today_str))
+        ]
+        completed_today = len([t for t in all_today_tasks if t.get("completed")])
+        self._mission_banner.update_progress(completed_today, len(all_today_tasks))
 
         self._refresh_status()
         if hasattr(self, "_dashboard_view"):
             self._dashboard_view.refresh_data()
 
+    def _create_task_widget(self, task: Dict[str, Any]) -> TaskWidget:
+        subtasks = self._db.get_subtasks(task["id"])
+        widget = TaskWidget(task, subtasks)
+        widget.task_completed.connect(self._on_task_completed)
+        widget.task_uncompleted.connect(self._on_task_uncompleted)
+        widget.task_deleted.connect(self._on_task_deleted)
+        widget.task_edit_requested.connect(self._on_task_edit)
+        widget.subtask_toggled.connect(self._on_subtask_toggled)
+        widget.add_subtask_requested.connect(self._on_add_subtask)
+        widget.move_category_requested.connect(self._on_move_category)
+        self._task_widgets[task["id"]] = widget
+        return widget
 
     def _refresh_status(self) -> None:
         stats = self._db.get_stats()
-        self._status_total.setText(f"Total: {stats['total']}  |  Activas: {stats['active']}")
-        self._status_done.setText(f"Completadas hoy: {stats['completed_today']}")
+        self._status_counts.setText(
+            f"Total {stats['total']} · Activas {stats['active']} · Completadas hoy {stats['completed_today']}"
+        )
+        self._topbar.set_subtitle(
+            f"{stats['active']} activas · {stats['completed_today']} completadas hoy"
+        )
 
     def _start_status_refresh(self) -> None:
         timer = QTimer(self)
-        timer.setInterval(60_000)  # every minute
+        timer.setInterval(60_000)
         timer.timeout.connect(self._refresh_status)
         timer.start()
-
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
-
-    def _on_search_changed(self, text: str) -> None:
-        self._refresh_tasks()
 
     # ------------------------------------------------------------------
     # Task interactions
@@ -1195,6 +1170,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_tasks()
             self._refresh_categories_sidebar()
+            self._refresh_gamification_hud()
 
     @pyqtSlot(int)
     def _on_task_completed(self, task_id: int) -> None:
@@ -1206,6 +1182,7 @@ class MainWindow(QMainWindow):
             {"priority": prio, "task_id": task_id, "title": task.get("title", "") if task else ""}
         )
         self._refresh_tasks()
+        self._refresh_categories_sidebar()
         self._refresh_gamification_hud()
         if hasattr(self, "_gamification_view"):
             self._gamification_view.refresh_data()
@@ -1215,12 +1192,14 @@ class MainWindow(QMainWindow):
             dlg.exec()
         elif res.get("newly_completed_quests"):
             q_titles = ", ".join(q["title"] for q in res["newly_completed_quests"])
-            self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}! Reclama tu XP en [⚔️ Misiones]", 6000)
+            self._voice_status_lbl.setText(f"🎯 ¡Misión cumplida: {q_titles}!")
 
     @pyqtSlot(int)
     def _on_task_uncompleted(self, task_id: int) -> None:
         self._db.uncomplete_task(task_id)
         self._refresh_tasks()
+        self._refresh_categories_sidebar()
+        self._refresh_gamification_hud()
 
     @pyqtSlot(int)
     def _on_task_deleted(self, task_id: int) -> None:
@@ -1233,6 +1212,8 @@ class MainWindow(QMainWindow):
             self._notifier.cancel_reminder(task_id)
             self._db.delete_task(task_id)
             self._refresh_tasks()
+            self._refresh_categories_sidebar()
+            self._refresh_gamification_hud()
 
     @pyqtSlot(int)
     def _on_task_edit(self, task_id: int) -> None:
@@ -1242,19 +1223,11 @@ class MainWindow(QMainWindow):
             if task:
                 self._notifier.schedule_reminder(task)
             self._refresh_tasks()
+            self._refresh_categories_sidebar()
 
     @pyqtSlot(int, bool)
     def _on_subtask_toggled(self, subtask_id: int, completed: bool) -> None:
         self._db.complete_subtask(subtask_id, completed)
-        # Update progress bar in the widget
-        cur = self._db._cursor()
-        cur.execute("SELECT task_id FROM subtasks WHERE id=?", (subtask_id,))
-        row = cur.fetchone()
-        if row:
-            task = self._db.get_task(row["task_id"])
-            if task and row["task_id"] in self._task_widgets:
-                self._task_widgets[row["task_id"]].update_progress(task["progress"])
-
         if completed:
             res = self._db.record_action("subtask_completed")
             self._refresh_gamification_hud()
@@ -1265,7 +1238,7 @@ class MainWindow(QMainWindow):
                 dlg.exec()
             elif res.get("newly_completed_quests"):
                 q_titles = ", ".join(q["title"] for q in res["newly_completed_quests"])
-                self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}!", 6000)
+                self._voice_status_lbl.setText(f"🎯 ¡Misión cumplida: {q_titles}!")
 
     @pyqtSlot(int)
     def _on_add_subtask(self, task_id: int) -> None:
@@ -1284,9 +1257,10 @@ class MainWindow(QMainWindow):
             if cat:
                 self._db.update_task(task_id, category_id=cat["id"])
                 self._refresh_tasks()
+                self._refresh_categories_sidebar()
 
     # ------------------------------------------------------------------
-    # Theme
+    # Theme & Settings
     # ------------------------------------------------------------------
 
     def _toggle_theme(self) -> None:
@@ -1294,16 +1268,10 @@ class MainWindow(QMainWindow):
         new_theme = "light" if current == "dark" else "dark"
         self._settings["theme"] = new_theme
         self._apply_theme(new_theme)
-        self._theme_btn.setText("🌙" if new_theme == "dark" else "☀")
 
     def _apply_theme(self, theme: str) -> None:
-        qss = DARK_QSS if theme == "dark" else LIGHT_QSS
+        qss = TASKMASTER_QSS if theme == "dark" else LIGHT_QSS
         QApplication.instance().setStyleSheet(qss)
-        self._theme_btn.setText("☀" if theme == "dark" else "🌙")
-
-    # ------------------------------------------------------------------
-    # Settings
-    # ------------------------------------------------------------------
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self._db, self._settings, parent=self)
@@ -1316,7 +1284,6 @@ class MainWindow(QMainWindow):
         _save_settings(new_settings)
         self._apply_theme(new_settings.get("theme", "dark"))
 
-        # Update notifier
         self._notifier.set_enabled(new_settings.get("notifications_enabled", True))
         self._notifier.update_schedule(
             daily_hour=new_settings.get("daily_summary_hour", 9),
@@ -1324,16 +1291,12 @@ class MainWindow(QMainWindow):
             reminder_minutes=new_settings.get("reminder_minutes", 30),
         )
 
-        # Restart voice manager if needed
         if self._voice_mgr:
-            was_listening = self._voice_mgr.is_listening
             self._voice_mgr.cleanup()
             self._voice_mgr = None
 
         if new_settings.get("voice_enabled", True):
             self._init_voice()
-            if was_listening if 'was_listening' in dir() else False:
-                self._voice_mgr.start_listening()
 
         self._refresh_categories_sidebar()
         self._refresh_tasks()
@@ -1342,12 +1305,12 @@ class MainWindow(QMainWindow):
     # Window close
     # ------------------------------------------------------------------
 
-    def closeEvent(self, event) -> None:  # noqa: N802
+    def closeEvent(self, event) -> None:
         """Minimise to tray instead of quitting."""
         event.ignore()
         self.hide()
         self._tray.showMessage(
-            "TaskVoice",
+            "Taskmaster",
             "La aplicación sigue ejecutándose en la bandeja del sistema.",
             QSystemTrayIcon.MessageIcon.Information,
             2000,

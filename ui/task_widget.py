@@ -1,18 +1,15 @@
 """
 ui/task_widget.py
 =================
-Custom QWidget that displays a single task card in the task list.
-
-Features
---------
-- Checkbox to complete the task
-- Coloured category badge
-- Priority dots
-- Due-date label
-- Progress bar (auto-updates from subtask changes)
-- Expand/collapse subtask list
-- Right-click context menu: Edit, Delete, Add Subtask, Move to Category
-- Double-click → opens edit dialog
+Task card widget redesigned with dark gamer/HUD aesthetic:
+- Background #161B24, subtle border #232A36, border-radius 12px
+- Stylized HUD corner accents on top-left and bottom-right in the category's color
+- Rounded turquoise checkbox with smooth check
+- Title (strikethrough & muted gray when completed)
+- Metadata row: category dot + name, calendar icon + date, gold coin icon + "+100 XP"
+- Priority badge with text (Alta naranja / Media azul / Baja gris)
+- More menu button "⋯" with Edit, Add subtask, Move, Delete
+- Expandable subtasks list
 """
 
 from __future__ import annotations
@@ -21,123 +18,104 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QRect,
+    Qt, pyqtSignal, QSize, QRectF, QPointF,
 )
-from PyQt6.QtGui import QColor, QPainter, QBrush, QFont, QCursor, QAction
+from PyQt6.QtGui import (
+    QColor, QPainter, QPen, QBrush, QFont, QCursor, QPainterPath,
+)
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QCheckBox,
-    QProgressBar, QPushButton, QFrame, QSizePolicy, QMenu,
-    QLineEdit, QScrollArea,
+    QPushButton, QFrame, QMenu, QSizePolicy,
+)
+
+from ui.tokens import (
+    BG_SURFACE, BORDER_SUBTLE,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+    ACCENT_TURQUOISE, ACCENT_GOLD,
+    PRIORITY_HIGH_COLOR, PRIORITY_MED_COLOR, PRIORITY_LOW_COLOR,
+    PRIORITY_HIGH_LABEL, PRIORITY_MED_LABEL, PRIORITY_LOW_LABEL,
+    PRIORITY_XP, FONT_FAMILY, FONT_MONO,
 )
 
 
-# ---------------------------------------------------------------------------
-# Priority colours
-# ---------------------------------------------------------------------------
-PRIORITY_COLORS = {
-    1: "#38bdf8",  # low  – shield / mana cyan
-    2: "#f59e0b",  # mid  – exalted amber gold
-    3: "#ef4444",  # high – tactical crimson red
-}
-PRIORITY_LABELS = {1: "Baja", 2: "Media", 3: "Alta"}
-PRIORITY_XP = {1: 30, 2: 60, 3: 100}
+class HudCheckbox(QWidget):
+    """Custom rounded checkbox with turquoise HUD check styling."""
 
+    toggled = pyqtSignal(bool)
 
-class CategoryBadge(QLabel):
-    """A small coloured pill label showing a category name."""
-
-    def __init__(self, name: str, color: str, parent=None):
-        super().__init__(name, parent)
-        self.setFixedHeight(20)
-        self._color = color
-        self._update_style()
-
-    def set_category(self, name: str, color: str) -> None:
-        self.setText(name)
-        self._color = color
-        self._update_style()
-
-    def _update_style(self) -> None:
-        # Determine text colour (dark/light) based on bg luminance
-        c = QColor(self._color)
-        lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
-        fg = "#1e1e2e" if lum > 160 else "#ffffff"
-        self.setStyleSheet(
-            f"background-color: {self._color}; color: {fg}; "
-            "border-radius: 9px; padding: 0 8px; font-size: 11px; font-weight: 600;"
-        )
-
-
-class PriorityDots(QWidget):
-    """Draws 1–3 filled circles representing task priority."""
-
-    def __init__(self, priority: int = 2, parent=None):
+    def __init__(self, checked: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.priority = priority
-        self.setFixedSize(40, 14)
+        self.setFixedSize(22, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._checked = checked
 
-    def set_priority(self, priority: int) -> None:
-        self.priority = max(1, min(3, priority))
-        self.update()
+    def isChecked(self) -> bool:
+        return self._checked
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def setChecked(self, checked: bool) -> None:
+        if self._checked != checked:
+            self._checked = checked
+            self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._checked = not self._checked
+            self.update()
+            self.toggled.emit(self._checked)
+
+    def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = QColor(PRIORITY_COLORS.get(self.priority, "#6b7280"))
-        dim   = QColor(color)
-        dim.setAlpha(40)
-        r = 5
-        spacing = 14
-        for i in range(3):
-            x = i * spacing + r
-            y = 7
-            painter.setBrush(QBrush(color if i < self.priority else dim))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(x - r, y - r, r * 2, r * 2)
-        painter.end()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(2, 2, 18, 18)
+
+        if self._checked:
+            # Filled turquoise background
+            painter.setBrush(QColor(ACCENT_TURQUOISE))
+            painter.setPen(QPen(QColor("#5EEAD4"), 1.2))
+            painter.drawRoundedRect(rect, 5, 5)
+
+            # White checkmark
+            painter.setPen(QPen(QColor("#0D1015"), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            check_path = QPainterPath()
+            check_path.moveTo(6.5, 11)
+            check_path.lineTo(9.5, 14)
+            check_path.lineTo(15.5, 7.5)
+            painter.drawPath(check_path)
+        else:
+            # Empty HUD outline
+            painter.setBrush(QColor("#11151C"))
+            painter.setPen(QPen(QColor("#2A3345"), 1.5))
+            painter.drawRoundedRect(rect, 5, 5)
 
 
 class SubtaskRow(QWidget):
-    """A single subtask row with a checkbox."""
+    """A single subtask row inside an expanded card."""
 
-    toggled = pyqtSignal(int, bool)   # subtask_id, completed
+    toggled = pyqtSignal(int, bool)
 
     def __init__(self, subtask: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.subtask_id = subtask["id"]
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(36, 2, 8, 2)
+        layout.setSpacing(8)
 
-        self._cb = QCheckBox(subtask["title"])
-        self._cb.setChecked(bool(subtask["completed"]))
-        self._cb.stateChanged.connect(self._on_toggle)
+        self._cb = HudCheckbox(bool(subtask["completed"]))
+        self._cb.toggled.connect(lambda done: self.toggled.emit(self.subtask_id, done))
         layout.addWidget(self._cb)
-        layout.addStretch()
 
-        self.setStyleSheet("color: #a6adc8; font-size: 12px;")
+        self._label = QLabel(subtask["title"])
+        if subtask["completed"]:
+            self._label.setStyleSheet(f"color: {TEXT_MUTED}; text-decoration: line-through; font-size: 13px;")
+        else:
+            self._label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px;")
+        layout.addWidget(self._label, stretch=1)
 
-    def _on_toggle(self, state: int) -> None:
-        self.toggled.emit(self.subtask_id, bool(state))
-
-
-# ===========================================================================
-# TaskWidget
-# ===========================================================================
 
 class TaskWidget(QFrame):
     """
-    A card widget representing one task.
-
-    Signals
-    -------
-    task_completed(int)       task_id
-    task_uncompleted(int)     task_id
-    task_deleted(int)         task_id
-    task_edit_requested(int)  task_id
-    subtask_toggled(int, bool) subtask_id, completed
-    add_subtask_requested(int) task_id
-    move_category_requested(int) task_id
+    Task card with HUD corner brackets in category color,
+    clean metadata, priority badge, and '⋯' menu.
     """
 
     task_completed        = pyqtSignal(int)
@@ -153,144 +131,206 @@ class TaskWidget(QFrame):
         task: Dict[str, Any],
         subtasks: List[Dict[str, Any]],
         index_number: Optional[int] = None,
-        parent=None,
+        parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self.task_id       = task["id"]
-        self._task         = task
-        self._subtasks     = subtasks
+        self.task_id = task["id"]
+        self._task = task
+        self._subtasks = subtasks
         self._index_number = index_number
-        self._expanded     = False
+        self._expanded = False
 
         self._build_ui()
         self._apply_task_data()
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
 
-    # ------------------------------------------------------------------
-    # UI construction
-    # ------------------------------------------------------------------
-
     def _build_ui(self) -> None:
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setObjectName("TaskCard")
-        self.setStyleSheet(
-            "#TaskCard {"
-            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #111624, stop:1 #0c0f18);"
-            "  border-radius: 8px;"
-            "  border: 1px solid #1f2d42;"
-            "  margin: 3px 0;"
-            "}"
-            "#TaskCard:hover {"
-            "  border: 1px solid #00f0ff;"
-            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #161e30, stop:1 #101522);"
-            "}"
-        )
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
+        root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(6)
 
-        # --- Top row ---
+        # Top row: Checkbox, Title, Priority badge, Menu button, Subtask expander
         top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        top_row.setSpacing(12)
 
-        self._cb = QCheckBox()
-        self._cb.setFixedSize(20, 20)
-        self._cb.stateChanged.connect(self._on_checkbox)
+        # 1. Checkbox
+        self._cb = HudCheckbox()
+        self._cb.toggled.connect(self._on_check_toggled)
         top_row.addWidget(self._cb)
 
-        self._num_badge = QLabel()
-        self._num_badge.setFixedHeight(22)
-        self._num_badge.setStyleSheet(
-            "background-color: #0b1019; color: #00f0ff; font-weight: 800; "
-            "border: 1px solid #00b4d8; border-radius: 4px; padding: 1px 7px; "
-            "font-size: 11px;"
-        )
-        if self._index_number is not None:
-            self._num_badge.setText(f"#{self._index_number}")
-            self._num_badge.setToolTip(f"Comando de voz: 'completar tarea {self._index_number}'")
-        else:
-            self._num_badge.hide()
-        top_row.addWidget(self._num_badge)
-
+        # 2. Title
         self._title_label = QLabel()
-        self._title_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #e2e8f0;")
+        self._title_label.setFont(QFont(FONT_FAMILY, 14, QFont.Weight.DemiBold))
+        self._title_label.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 14px;")
         self._title_label.setWordWrap(True)
-        top_row.addWidget(self._title_label, 1)
+        top_row.addWidget(self._title_label, stretch=1)
 
-        self._priority_dots = PriorityDots()
-        top_row.addWidget(self._priority_dots)
+        # 3. Priority badge
+        self._priority_badge = QLabel("Media")
+        self._priority_badge.setFixedHeight(24)
+        self._priority_badge.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
+        top_row.addWidget(self._priority_badge)
 
+        # 4. Expand subtasks toggle (if subtasks exist)
         self._expand_btn = QPushButton("▸")
-        self._expand_btn.setFixedSize(22, 22)
+        self._expand_btn.setFixedSize(24, 24)
+        self._expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expand_btn.setStyleSheet(
-            "QPushButton { background: transparent; color: #64748b; border: none; font-size: 12px; }"
-            "QPushButton:hover { color: #00f0ff; }"
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT_MUTED};
+                border: none;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                color: {TEXT_PRIMARY};
+            }}
+            """
         )
         self._expand_btn.clicked.connect(self._toggle_expand)
         top_row.addWidget(self._expand_btn)
 
+        # 5. Menu "⋯" button
+        self._menu_btn = QPushButton("⋯")
+        self._menu_btn.setFixedSize(26, 26)
+        self._menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._menu_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT_MUTED};
+                border: none;
+                font-size: 16px;
+                font-weight: bold;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background: #1F2837;
+                color: {TEXT_PRIMARY};
+            }}
+            """
+        )
+        self._menu_btn.clicked.connect(self._open_menu_from_btn)
+        top_row.addWidget(self._menu_btn)
+
         root.addLayout(top_row)
 
-        # --- Middle row: badge + due date + XP badge ---
-        mid_row = QHBoxLayout()
-        mid_row.setContentsMargins(28, 0, 0, 0)
-        mid_row.setSpacing(8)
+        # Metadata row: Category dot + name, calendar + date, gold coin + XP
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(34, 0, 0, 0)
+        meta_row.setSpacing(16)
 
-        self._badge = CategoryBadge("", "#7c3aed")
-        mid_row.addWidget(self._badge)
+        # Category indicator
+        self._cat_container = QWidget()
+        cat_l = QHBoxLayout(self._cat_container)
+        cat_l.setContentsMargins(0, 0, 0, 0)
+        cat_l.setSpacing(6)
 
-        self._xp_badge = QLabel("+60 XP")
-        self._xp_badge.setStyleSheet(
-            "background: #1c1508; color: #ffd166; font-size: 10px; font-weight: 700; "
-            "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px;"
-        )
-        mid_row.addWidget(self._xp_badge)
+        self._cat_dot = QLabel("●")
+        self._cat_dot.setStyleSheet("font-size: 11px;")
+        cat_l.addWidget(self._cat_dot)
 
+        self._cat_name = QLabel("")
+        self._cat_name.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 500;")
+        cat_l.addWidget(self._cat_name)
+        meta_row.addWidget(self._cat_container)
+
+        # Due date
         self._due_label = QLabel()
-        self._due_label.setStyleSheet("font-size: 11px; color: #64748b;")
-        mid_row.addWidget(self._due_label)
-        mid_row.addStretch()
+        self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+        meta_row.addWidget(self._due_label)
 
-        root.addLayout(mid_row)
+        # XP reward
+        self._xp_label = QLabel("🪙 +100 XP")
+        self._xp_label.setFont(QFont(FONT_MONO, 11, QFont.Weight.Bold))
+        self._xp_label.setStyleSheet(f"color: {ACCENT_GOLD}; font-size: 12px;")
+        meta_row.addWidget(self._xp_label)
 
-        # --- Progress bar ---
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setFixedHeight(5)
-        self._progress_bar.setTextVisible(False)
-        self._progress_bar.setStyleSheet(
-            "QProgressBar { background: #141b29; border: 1px solid #1f2d42; border-radius: 2px; }"
-            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00f0ff); border-radius: 2px; }"
-        )
-        root.addWidget(self._progress_bar)
+        meta_row.addStretch()
+        root.addLayout(meta_row)
 
-        # --- Subtask container (hidden by default) ---
+        # Subtasks container
         self._subtask_container = QWidget()
         self._subtask_container.setVisible(False)
         self._subtask_layout = QVBoxLayout(self._subtask_container)
         self._subtask_layout.setContentsMargins(0, 4, 0, 0)
-        self._subtask_layout.setSpacing(2)
+        self._subtask_layout.setSpacing(3)
         root.addWidget(self._subtask_container)
-
-    # ------------------------------------------------------------------
-    # Data binding
-    # ------------------------------------------------------------------
 
     def _apply_task_data(self) -> None:
         task = self._task
-        self._title_label.setText(task.get("title", ""))
-        self._cb.setChecked(bool(task.get("completed", 0)))
-        self._priority_dots.set_priority(task.get("priority", 2))
-        self._progress_bar.setValue(task.get("progress", 0))
+        is_completed = bool(task.get("completed", 0))
 
-        # Category badge
-        cat_name  = task.get("category_name") or "Sin categoría"
-        cat_color = task.get("category_color") or "#6b7280"
-        self._badge.set_category(cat_name, cat_color)
-        self._badge.setVisible(bool(task.get("category_name")))
+        # Title
+        title = task.get("title", "")
+        self._title_label.setText(title)
+        if is_completed:
+            self._title_label.setStyleSheet(
+                f"color: {TEXT_MUTED}; font-size: 14px; text-decoration: line-through;"
+            )
+        else:
+            self._title_label.setStyleSheet(
+                f"color: {TEXT_PRIMARY}; font-size: 14px;"
+            )
+
+        # Checkbox
+        self._cb.setChecked(is_completed)
+
+        # Priority badge
+        prio = task.get("priority", 2)
+        if prio == 3:
+            self._priority_badge.setText(PRIORITY_HIGH_LABEL)
+            self._priority_badge.setStyleSheet(
+                f"""
+                background-color: rgba(245, 158, 11, 0.16);
+                color: {PRIORITY_HIGH_COLOR};
+                border-radius: 6px;
+                padding: 2px 10px;
+                """
+            )
+            xp_amount = PRIORITY_XP.get(3, 100)
+        elif prio == 1:
+            self._priority_badge.setText(PRIORITY_LOW_LABEL)
+            self._priority_badge.setStyleSheet(
+                f"""
+                background-color: rgba(100, 116, 139, 0.16);
+                color: {PRIORITY_LOW_COLOR};
+                border-radius: 6px;
+                padding: 2px 10px;
+                """
+            )
+            xp_amount = PRIORITY_XP.get(1, 30)
+        else:
+            self._priority_badge.setText(PRIORITY_MED_LABEL)
+            self._priority_badge.setStyleSheet(
+                f"""
+                background-color: rgba(96, 165, 250, 0.16);
+                color: {PRIORITY_MED_COLOR};
+                border-radius: 6px;
+                padding: 2px 10px;
+                """
+            )
+            xp_amount = PRIORITY_XP.get(2, 60)
+
+        # XP Label
+        self._xp_label.setText(f"🪙 +{xp_amount} XP")
+
+        # Category
+        cat_name = task.get("category_name")
+        cat_color = task.get("category_color") or "#60A5FA"
+        if cat_name:
+            self._cat_container.setVisible(True)
+            self._cat_dot.setStyleSheet(f"color: {cat_color}; font-size: 11px;")
+            self._cat_name.setText(cat_name)
+        else:
+            self._cat_container.setVisible(False)
 
         # Due date
         due = task.get("due_date")
@@ -299,56 +339,24 @@ class TaskWidget(QFrame):
                 dt = datetime.fromisoformat(due)
                 now = datetime.now()
                 diff = dt - now
-                if diff.total_seconds() < 0:
+                if diff.total_seconds() < 0 and not is_completed:
                     self._due_label.setText(f"⚠ Vencida: {dt.strftime('%d/%m %H:%M')}")
-                    self._due_label.setStyleSheet("font-size: 11px; color: #f38ba8;")
-                elif diff.total_seconds() < 3600:
+                    self._due_label.setStyleSheet("color: #F87171; font-size: 12px;")
+                elif diff.total_seconds() < 3600 and not is_completed:
                     self._due_label.setText(f"⏰ {dt.strftime('%d/%m %H:%M')}")
-                    self._due_label.setStyleSheet("font-size: 11px; color: #fab387;")
+                    self._due_label.setStyleSheet("color: #FBBF24; font-size: 12px;")
                 else:
-                    self._due_label.setText(dt.strftime("📅 %d/%m/%Y %H:%M"))
-                    self._due_label.setStyleSheet("font-size: 11px; color: #6c7086;")
-            except ValueError:
-                self._due_label.setText(due)
+                    self._due_label.setText(f"📅 {dt.strftime('%d/%m/%Y')}")
+                    self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+            except Exception:
+                self._due_label.setText(f"📅 {due}")
+                self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
         else:
             self._due_label.setText("")
-
-        # XP badge
-        prio = task.get("priority", 2)
-        xp_val = PRIORITY_XP.get(prio, 60)
-        self._xp_badge.setText(f"⭐ +{xp_val} XP")
-        if prio == 3:
-            self._xp_badge.setStyleSheet(
-                "background: #2a1114; color: #ff6b6b; font-size: 10px; font-weight: 800; "
-                "border: 1px solid #ef4444; border-radius: 4px; padding: 1px 6px;"
-            )
-        elif prio == 2:
-            self._xp_badge.setStyleSheet(
-                "background: #1c1508; color: #ffd166; font-size: 10px; font-weight: 700; "
-                "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px;"
-            )
-        else:
-            self._xp_badge.setStyleSheet(
-                "background: #0b1a29; color: #38bdf8; font-size: 10px; font-weight: 700; "
-                "border: 1px solid #0284c7; border-radius: 4px; padding: 1px 6px;"
-            )
-
-        # Completed appearance
-        if task.get("completed"):
-            self._title_label.setStyleSheet(
-                "font-size: 14px; font-weight: 600; color: #64748b; text-decoration: line-through;"
-            )
-            self._xp_badge.setStyleSheet(
-                "background: #0f172a; color: #64748b; font-size: 10px; font-weight: 600; "
-                "border: 1px solid #334155; border-radius: 4px; padding: 1px 6px;"
-            )
-            self._xp_badge.setText(f"✔ +{xp_val} XP")
 
         self._rebuild_subtasks()
 
     def _rebuild_subtasks(self) -> None:
-        """Repopulate the subtask container from self._subtasks."""
-        # Remove old rows
         while self._subtask_layout.count():
             item = self._subtask_layout.takeAt(0)
             if item.widget():
@@ -359,26 +367,60 @@ class TaskWidget(QFrame):
             row.toggled.connect(lambda sid, done: self.subtask_toggled.emit(sid, done))
             self._subtask_layout.addWidget(row)
 
-        # Show expand button only if there are subtasks
         self._expand_btn.setVisible(len(self._subtasks) > 0)
 
+    def paintEvent(self, event) -> None:
+        """
+        Draw the HUD Card background and category-colored corner brackets.
+        """
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w, h = self.width(), self.height()
+        rect = QRectF(0.5, 0.5, w - 1, h - 1)
+
+        # 1. Background fill #161B24 with border #232A36
+        is_completed = bool(self._task.get("completed", 0))
+        bg_col = QColor("#131720" if is_completed else BG_SURFACE)
+        border_col = QColor(BORDER_SUBTLE)
+
+        painter.setBrush(bg_col)
+        painter.setPen(QPen(border_col, 1))
+        painter.drawRoundedRect(rect, 12, 12)
+
+        # 2. Stylized HUD corners in Category color
+        cat_color_str = self._task.get("category_color")
+        if cat_color_str:
+            corner_pen = QPen(QColor(cat_color_str), 2.2)
+            corner_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(corner_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            arm = 14  # length of corner bracket arm
+
+            # Top-left corner bracket
+            tl_path = QPainterPath()
+            tl_path.moveTo(0.5, arm + 4)
+            tl_path.lineTo(0.5, 12)
+            tl_path.quadTo(0.5, 0.5, 12, 0.5)
+            tl_path.lineTo(arm + 4, 0.5)
+            painter.drawPath(tl_path)
+
+            # Bottom-right corner bracket
+            br_path = QPainterPath()
+            br_path.moveTo(w - arm - 4, h - 0.5)
+            br_path.lineTo(w - 12, h - 0.5)
+            br_path.quadTo(w - 0.5, h - 0.5, w - 0.5, h - 12)
+            br_path.lineTo(w - 0.5, h - arm - 4)
+            painter.drawPath(br_path)
+
     def update_task(self, task: Dict[str, Any], subtasks: List[Dict[str, Any]]) -> None:
-        """Refresh the widget with new task data."""
-        self._task     = task
+        self._task = task
         self._subtasks = subtasks
         self._apply_task_data()
+        self.update()
 
-    def update_progress(self, progress: int) -> None:
-        """Update only the progress bar value."""
-        self._progress_bar.setValue(progress)
-
-    # ------------------------------------------------------------------
-    # Interactions
-    # ------------------------------------------------------------------
-
-    def _on_checkbox(self, state: int) -> None:
-        completed = bool(state)
-        if completed:
+    def _on_check_toggled(self, checked: bool) -> None:
+        if checked:
             self.task_completed.emit(self.task_id)
         else:
             self.task_uncompleted.emit(self.task_id)
@@ -388,18 +430,34 @@ class TaskWidget(QFrame):
         self._subtask_container.setVisible(self._expanded)
         self._expand_btn.setText("▾" if self._expanded else "▸")
 
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+    def mouseDoubleClickEvent(self, event) -> None:
         self.task_edit_requested.emit(self.task_id)
+
+    def _open_menu_from_btn(self) -> None:
+        self._show_context_menu(self._menu_btn.pos() + QPointF(0, self._menu_btn.height()).toPoint())
 
     def _show_context_menu(self, pos) -> None:
         menu = QMenu(self)
         menu.setStyleSheet(
-            "QMenu { background: #313244; color: #cdd6f4; border: 1px solid #45475a; }"
-            "QMenu::item:selected { background: #7c3aed; }"
+            f"""
+            QMenu {{
+                background-color: {BG_SURFACE};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER_SUBTLE};
+                border-radius: 8px;
+                padding: 4px 0;
+            }}
+            QMenu::item {{
+                padding: 6px 20px;
+            }}
+            QMenu::item:selected {{
+                background-color: #1F2837;
+            }}
+            """
         )
-        edit_action   = menu.addAction("✏ Editar")
+        edit_action = menu.addAction("✏ Editar")
         subtask_action = menu.addAction("➕ Añadir Subtarea")
-        move_action   = menu.addAction("📁 Mover a Categoría")
+        move_action = menu.addAction("📁 Mover a Categoría")
         menu.addSeparator()
         delete_action = menu.addAction("🗑 Eliminar")
 
