@@ -27,6 +27,7 @@ class QuickAddWidget(QWidget):
     """Bar for rapid task creation with text input and microphone button."""
 
     add_task_requested = pyqtSignal(str)
+    complex_task_requested = pyqtSignal(str)
     voice_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -73,7 +74,7 @@ class QuickAddWidget(QWidget):
         # 3. Add button (violet)
         self._add_btn = QPushButton("Agregar")
         self._add_btn.setFixedHeight(46)
-        self._add_btn.setMinimumWidth(100)
+        self._add_btn.setMinimumWidth(90)
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setStyleSheet(
             f"""
@@ -83,7 +84,7 @@ class QuickAddWidget(QWidget):
                 border-radius: 12px;
                 font-size: 14px;
                 font-weight: 700;
-                padding: 0 18px;
+                padding: 0 16px;
                 border: none;
             }}
             QPushButton:hover {{
@@ -97,11 +98,45 @@ class QuickAddWidget(QWidget):
         self._add_btn.clicked.connect(self._on_add)
         layout.addWidget(self._add_btn)
 
+        # 4. Complex / Detailed Task button (HUD turquoise accent)
+        self._complex_btn = QPushButton("➕ Tarea compleja")
+        self._complex_btn.setFixedHeight(46)
+        self._complex_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._complex_btn.setToolTip("Crear tarea compleja / recurrente con días, horas, subtareas y fechas (Ctrl+N)")
+        self._complex_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: #161B24;
+                color: #5EEAD4;
+                border: 1px solid rgba(45, 212, 191, 0.45);
+                border-radius: 12px;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(45, 212, 191, 0.15);
+                border-color: #2DD4BF;
+                color: #FFFFFF;
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(45, 212, 191, 0.25);
+            }}
+            """
+        )
+        self._complex_btn.clicked.connect(self._on_complex)
+        layout.addWidget(self._complex_btn)
+
     def _on_add(self) -> None:
         text = self._input.text().strip()
         if text:
             self.add_task_requested.emit(text)
             self._input.clear()
+
+    def _on_complex(self) -> None:
+        text = self._input.text().strip()
+        self.complex_task_requested.emit(text)
+        self._input.clear()
 
     def _on_mic_clicked(self) -> None:
         self._is_listening = not self._is_listening

@@ -258,10 +258,19 @@ QDialog { background: #f8f8f2; }
 class TaskEditDialog(QDialog):
     """Dialog for creating or editing a task (with subtasks)."""
 
-    def __init__(self, db: DatabaseManager, task_id: Optional[int] = None, parent=None):
+    def __init__(
+        self,
+        db: DatabaseManager,
+        task_id: Optional[int] = None,
+        initial_title: str = "",
+        initial_category_id: Optional[int] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._db = db
         self._task_id = task_id
+        self._initial_title = initial_title
+        self._initial_category_id = initial_category_id
         self._task: Optional[Dict[str, Any]] = None
         self._subtasks: List[Dict[str, Any]] = []
         self._new_subtask_edits: List[QLineEdit] = []
@@ -271,7 +280,7 @@ class TaskEditDialog(QDialog):
             self._subtasks = db.get_subtasks(task_id)
             self.setWindowTitle("Editar Tarea")
         else:
-            self.setWindowTitle("Nueva Tarea")
+            self.setWindowTitle("Nueva Tarea Compleja")
 
         self.setMinimumWidth(440)
         self._build_ui()
@@ -460,6 +469,13 @@ class TaskEditDialog(QDialog):
 
     def _load_data(self) -> None:
         if self._task is None:
+            if self._initial_category_id is not None:
+                for i in range(self._cat_combo.count()):
+                    if self._cat_combo.itemData(i) == self._initial_category_id:
+                        self._cat_combo.setCurrentIndex(i)
+                        break
+            if self._initial_title:
+                self._title_edit.setText(self._initial_title)
             return
         t = self._task
         self._title_edit.setText(t.get("title", ""))
@@ -813,6 +829,7 @@ class MainWindow(QMainWindow):
         # Quick capture bar
         self._quick_add = QuickAddWidget(self)
         self._quick_add.add_task_requested.connect(self._on_quick_add_task)
+        self._quick_add.complex_task_requested.connect(self._open_new_task)
         self._quick_add.voice_toggled.connect(self._toggle_voice)
         self._tasks_content_layout.addWidget(self._quick_add)
 
@@ -1392,8 +1409,15 @@ class MainWindow(QMainWindow):
     # Task interactions
     # ------------------------------------------------------------------
 
-    def _open_new_task(self) -> None:
-        dlg = TaskEditDialog(self._db, task_id=None, parent=self)
+    def _open_new_task(self, initial_title: Any = "") -> None:
+        title_str = initial_title if isinstance(initial_title, str) else ""
+        dlg = TaskEditDialog(
+            self._db,
+            task_id=None,
+            initial_title=title_str,
+            initial_category_id=self._active_category_id,
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             if hasattr(dlg, "saved_task_id") and dlg.saved_task_id:
                 task = self._db.get_task(dlg.saved_task_id)
