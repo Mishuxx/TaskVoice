@@ -120,6 +120,7 @@ def main() -> int:
         reminder_minutes=settings.get("reminder_minutes", 30),
         daily_summary_hour=settings.get("daily_summary_hour", 9),
         daily_summary_minute=settings.get("daily_summary_minute", 0),
+        settings=settings,
     )
     notifier.set_enabled(settings.get("notifications_enabled", True))
 

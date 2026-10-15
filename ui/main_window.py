@@ -90,6 +90,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "voice_engine": "google",
     "vosk_model_path": "",
     "push_to_talk": False,
+    "telegram_enabled": False,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "whatsapp_enabled": False,
+    "whatsapp_phone": "",
+    "whatsapp_apikey": "",
 }
 
 # ---------------------------------------------------------------------------
@@ -1741,6 +1747,7 @@ class MainWindow(QMainWindow):
         self._apply_theme(new_settings.get("theme", "dark"))
 
         self._notifier.set_enabled(new_settings.get("notifications_enabled", True))
+        self._notifier.update_settings(new_settings)
         self._notifier.update_schedule(
             daily_hour=new_settings.get("daily_summary_hour", 9),
             daily_minute=new_settings.get("daily_summary_minute", 0),

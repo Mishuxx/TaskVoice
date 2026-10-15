@@ -1,31 +1,51 @@
 """
 ui/settings_dialog.py
 =====================
-Settings dialog with four tabs:
-  General   – theme toggle, language placeholder
-  Notificaciones – enable/disable, reminder time, daily summary time
-  Voz       – engine selection, Vosk model path, push-to-talk toggle
-  Categorías – list view with add/rename/delete and color picker
+Settings dialog with five tabs:
+  General        – theme toggle, language placeholder
+  Notificaciones – desktop notifications, reminder interval, daily summary time
+  Bots           – Telegram Bot & WhatsApp (CallMeBot) notification channels
+  Voz            – engine selection, Vosk model path, push-to-talk toggle
+  Categorías     – list view with add/rename/delete and color picker
 """
 
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTime
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QLabel, QCheckBox, QComboBox, QSpinBox, QTimeEdit, QPushButton,
     QLineEdit, QListWidget, QListWidgetItem, QGroupBox, QFormLayout,
     QColorDialog, QFileDialog, QDialogButtonBox, QMessageBox, QFrame,
+    QScrollArea,
 )
-from PyQt6.QtCore import QTime
+
+from core.bot_notifier import test_telegram, test_whatsapp
+
+
+class BotTestWorker(QThread):
+    """Worker thread to run Telegram / WhatsApp test calls without blocking UI."""
+    finished_result = pyqtSignal(bool, str)
+
+    def __init__(self, test_fn, *args):
+        super().__init__()
+        self._fn = test_fn
+        self._args = args
+
+    def run(self):
+        try:
+            ok, msg = self._fn(*self._args)
+            self.finished_result.emit(ok, msg)
+        except Exception as exc:
+            self.finished_result.emit(False, str(exc))
 
 
 class SettingsDialog(QDialog):
     """
-    Application settings dialog.
+    Application settings dialog for Taskmaster.
 
     Signals
     -------
@@ -39,9 +59,10 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._db = db
         self._settings = dict(current_settings)
+        self._active_worker: Optional[BotTestWorker] = None
 
-        self.setWindowTitle("Ajustes – TaskVoice")
-        self.setMinimumSize(560, 480)
+        self.setWindowTitle("Ajustes – Taskmaster")
+        self.setMinimumSize(640, 560)
         self.setModal(True)
 
         self._build_ui()
@@ -58,18 +79,21 @@ class SettingsDialog(QDialog):
 
         self._tabs = QTabWidget()
         self._tabs.setStyleSheet(
-            "QTabWidget::pane { border: none; background: #1e1e2e; }"
-            "QTabBar::tab { background: #313244; color: #cdd6f4; padding: 8px 18px; }"
-            "QTabBar::tab:selected { background: #7c3aed; color: #fff; }"
+            "QTabWidget::pane { border: none; background: #0D1015; }"
+            "QTabBar::tab { background: #161B24; color: #9AA4B5; padding: 10px 18px; font-weight: 600; border-bottom: 2px solid transparent; }"
+            "QTabBar::tab:selected { background: #1E2430; color: #2DD4BF; border-bottom: 2px solid #2DD4BF; }"
+            "QTabBar::tab:hover { background: #1B212C; color: #E8ECF2; }"
         )
 
-        self._general_tab       = self._build_general_tab()
-        self._notif_tab         = self._build_notifications_tab()
-        self._voice_tab         = self._build_voice_tab()
-        self._categories_tab    = self._build_categories_tab()
+        self._general_tab    = self._build_general_tab()
+        self._notif_tab      = self._build_notifications_tab()
+        self._bots_tab       = self._build_bots_tab()
+        self._voice_tab      = self._build_voice_tab()
+        self._categories_tab = self._build_categories_tab()
 
         self._tabs.addTab(self._general_tab,    "⚙ General")
         self._tabs.addTab(self._notif_tab,      "🔔 Notificaciones")
+        self._tabs.addTab(self._bots_tab,       "🤖 Bots (Telegram / WhatsApp)")
         self._tabs.addTab(self._voice_tab,      "🎙 Voz")
         self._tabs.addTab(self._categories_tab, "🏷 Categorías")
 
@@ -80,10 +104,11 @@ class SettingsDialog(QDialog):
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         btn_box.setStyleSheet(
-            "QDialogButtonBox { background: #1e1e2e; }"
-            "QPushButton { background: #7c3aed; color: #fff; border-radius: 6px; padding: 6px 20px; }"
-            "QPushButton:hover { background: #6d28d9; }"
-            "QPushButton[text='Cancel'] { background: #45475a; }"
+            "QDialogButtonBox { background: #11151C; padding: 12px 20px; border-top: 1px solid #232A36; }"
+            "QPushButton { background: #7C3AED; color: #fff; font-weight: 600; border-radius: 8px; padding: 8px 24px; min-height: 20px; }"
+            "QPushButton:hover { background: #6D28D9; }"
+            "QPushButton[text='Cancel'] { background: #1F2837; color: #9AA4B5; border: 1px solid #2D3748; }"
+            "QPushButton[text='Cancel']:hover { background: #283344; color: #E8ECF2; }"
         )
         btn_box.accepted.connect(self._save)
         btn_box.rejected.connect(self.reject)
@@ -95,16 +120,16 @@ class SettingsDialog(QDialog):
         w = QWidget()
         form = QFormLayout(w)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setContentsMargins(20, 20, 20, 20)
-        form.setSpacing(14)
+        form.setContentsMargins(24, 24, 24, 24)
+        form.setSpacing(16)
 
         self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Oscuro", "Claro"])
-        form.addRow("Tema:", self._theme_combo)
+        self._theme_combo.addItems(["Oscuro (StarCraft / HUD)", "Claro"])
+        form.addRow("Tema visual:", self._theme_combo)
 
         self._lang_combo = QComboBox()
         self._lang_combo.addItems(["Español", "English"])
-        form.addRow("Idioma:", self._lang_combo)
+        form.addRow("Idioma de interfaz:", self._lang_combo)
 
         return w
 
@@ -113,30 +138,28 @@ class SettingsDialog(QDialog):
     def _build_notifications_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
-        self._notif_enabled_cb = QCheckBox("Habilitar notificaciones de escritorio")
+        self._notif_enabled_cb = QCheckBox("Habilitar notificaciones locales de escritorio")
         layout.addWidget(self._notif_enabled_cb)
 
         grp = QGroupBox("Recordatorios de tareas")
-        grp.setStyleSheet("QGroupBox { color: #cdd6f4; }")
         grp_form = QFormLayout(grp)
-        grp_form.setSpacing(10)
+        grp_form.setSpacing(12)
 
         self._reminder_spin = QSpinBox()
         self._reminder_spin.setRange(1, 120)
         self._reminder_spin.setSuffix(" min antes")
-        grp_form.addRow("Avisar:", self._reminder_spin)
+        grp_form.addRow("Avisar con anticipación:", self._reminder_spin)
 
         layout.addWidget(grp)
 
         grp2 = QGroupBox("Resumen diario")
-        grp2.setStyleSheet("QGroupBox { color: #cdd6f4; }")
         grp2_form = QFormLayout(grp2)
-        grp2_form.setSpacing(10)
+        grp2_form.setSpacing(12)
 
-        self._summary_enabled_cb = QCheckBox("Enviar resumen diario")
+        self._summary_enabled_cb = QCheckBox("Enviar resumen diario de tareas matutino")
         grp2_form.addRow(self._summary_enabled_cb)
 
         self._summary_time_edit = QTimeEdit()
@@ -147,23 +170,210 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return w
 
+    # ---- Bots tab (Telegram & WhatsApp) ----
+
+    def _build_bots_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: #0D1015; }")
+
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(20)
+
+        # -------------------------------------------------------------
+        # 1. Telegram Section
+        # -------------------------------------------------------------
+        tg_box = QGroupBox("Telegram Bot")
+        tg_layout = QVBoxLayout(tg_box)
+        tg_layout.setSpacing(12)
+        tg_layout.setContentsMargins(16, 16, 16, 16)
+
+        self._tg_enabled_cb = QCheckBox("Activar alertas y recordatorios por Telegram")
+        self._tg_enabled_cb.setStyleSheet("font-weight: 700; color: #5EEAD4;")
+        tg_layout.addWidget(self._tg_enabled_cb)
+
+        # Telegram Guide Banner
+        tg_guide = QLabel(
+            "<b>Pasos para configurar Telegram en 1 minuto:</b><br>"
+            "1. Abre Telegram y escribe a <b>@BotFather</b>.<br>"
+            "2. Envía <code>/newbot</code>, dale un nombre y copia el <b>Token</b>.<br>"
+            "3. Dale a <b>INICIAR (/start)</b> a tu bot recién creado.<br>"
+            "4. Averigua tu <b>Chat ID</b> escribiéndole <code>/start</code> a <b>@userinfobot</b> y pégalo abajo."
+        )
+        tg_guide.setWordWrap(True)
+        tg_guide.setStyleSheet(
+            "background: #131822; color: #9AA4B5; border: 1px solid #1E2838; border-radius: 8px; padding: 10px; font-size: 11px;"
+        )
+        tg_layout.addWidget(tg_guide)
+
+        tg_form = QFormLayout()
+        tg_form.setSpacing(10)
+
+        self._tg_token_edit = QLineEdit()
+        self._tg_token_edit.setPlaceholderText("Ej: 7123456789:AAFlPzM8K4_...")
+        tg_form.addRow("Bot Token:", self._tg_token_edit)
+
+        self._tg_chat_id_edit = QLineEdit()
+        self._tg_chat_id_edit.setPlaceholderText("Ej: 123456789")
+        tg_form.addRow("Chat ID:", self._tg_chat_id_edit)
+
+        tg_layout.addLayout(tg_form)
+
+        # Test Telegram Button & Status
+        tg_action_row = QHBoxLayout()
+        self._tg_test_btn = QPushButton("✈ Enviar prueba a Telegram")
+        self._tg_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tg_test_btn.setStyleSheet(
+            "QPushButton { background: #1E293B; color: #38BDF8; border: 1px solid #0284C7; font-weight: 600; border-radius: 6px; padding: 6px 16px; }"
+            "QPushButton:hover { background: #0369A1; color: #fff; }"
+        )
+        self._tg_test_btn.clicked.connect(self._test_telegram)
+        tg_action_row.addWidget(self._tg_test_btn)
+
+        self._tg_status_lbl = QLabel("")
+        self._tg_status_lbl.setWordWrap(True)
+        self._tg_status_lbl.setStyleSheet("font-size: 11px;")
+        tg_action_row.addWidget(self._tg_status_lbl, 1)
+
+        tg_layout.addLayout(tg_action_row)
+        layout.addWidget(tg_box)
+
+        # -------------------------------------------------------------
+        # 2. WhatsApp Section (CallMeBot)
+        # -------------------------------------------------------------
+        wa_box = QGroupBox("WhatsApp (CallMeBot)")
+        wa_layout = QVBoxLayout(wa_box)
+        wa_layout.setSpacing(12)
+        wa_layout.setContentsMargins(16, 16, 16, 16)
+
+        self._wa_enabled_cb = QCheckBox("Activar alertas y recordatorios por WhatsApp (CallMeBot)")
+        self._wa_enabled_cb.setStyleSheet("font-weight: 700; color: #34D399;")
+        wa_layout.addWidget(self._wa_enabled_cb)
+
+        # WhatsApp Guide Banner
+        wa_guide = QLabel(
+            "<b>Pasos para configurar WhatsApp gratis con CallMeBot:</b><br>"
+            "1. Agrega a contactos el teléfono de CallMeBot: <b>+34 644 59 71 82</b> (o el de su web <i>callmebot.com</i>).<br>"
+            "2. Envíale por WhatsApp el mensaje exacto: <code>I allow callmebot to send me messages</code><br>"
+            "3. Recibirás tu <b>API Key</b> de respuesta en segundos."
+        )
+        wa_guide.setWordWrap(True)
+        wa_guide.setStyleSheet(
+            "background: #131822; color: #9AA4B5; border: 1px solid #1E2838; border-radius: 8px; padding: 10px; font-size: 11px;"
+        )
+        wa_layout.addWidget(wa_guide)
+
+        wa_form = QFormLayout()
+        wa_form.setSpacing(10)
+
+        self._wa_phone_edit = QLineEdit()
+        self._wa_phone_edit.setPlaceholderText("Ej: +34 612 345 678 o 54911...")
+        wa_form.addRow("Tu Teléfono:", self._wa_phone_edit)
+
+        self._wa_apikey_edit = QLineEdit()
+        self._wa_apikey_edit.setPlaceholderText("Ej: 9876543")
+        wa_form.addRow("API Key:", self._wa_apikey_edit)
+
+        wa_layout.addLayout(wa_form)
+
+        # Test WhatsApp Button & Status
+        wa_action_row = QHBoxLayout()
+        self._wa_test_btn = QPushButton("💬 Enviar prueba a WhatsApp")
+        self._wa_test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._wa_test_btn.setStyleSheet(
+            "QPushButton { background: #064E3B; color: #34D399; border: 1px solid #059669; font-weight: 600; border-radius: 6px; padding: 6px 16px; }"
+            "QPushButton:hover { background: #047857; color: #fff; }"
+        )
+        self._wa_test_btn.clicked.connect(self._test_whatsapp)
+        wa_action_row.addWidget(self._wa_test_btn)
+
+        self._wa_status_lbl = QLabel("")
+        self._wa_status_lbl.setWordWrap(True)
+        self._wa_status_lbl.setStyleSheet("font-size: 11px;")
+        wa_action_row.addWidget(self._wa_status_lbl, 1)
+
+        wa_layout.addLayout(wa_action_row)
+        layout.addWidget(wa_box)
+
+        layout.addStretch()
+        scroll.setWidget(w)
+        return scroll
+
+    def _test_telegram(self) -> None:
+        token = self._tg_token_edit.text().strip()
+        chat_id = self._tg_chat_id_edit.text().strip()
+
+        if not token or not chat_id:
+            self._tg_status_lbl.setText("⚠ Ingresa primero el Token y el Chat ID.")
+            self._tg_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
+            return
+
+        self._tg_test_btn.setEnabled(False)
+        self._tg_test_btn.setText("Enviando...")
+        self._tg_status_lbl.setText("Conectando con Telegram...")
+        self._tg_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
+
+        self._active_worker = BotTestWorker(test_telegram, token, chat_id)
+        self._active_worker.finished_result.connect(self._on_telegram_test_result)
+        self._active_worker.start()
+
+    def _on_telegram_test_result(self, success: bool, msg: str) -> None:
+        self._tg_test_btn.setEnabled(True)
+        self._tg_test_btn.setText("✈ Enviar prueba a Telegram")
+        if success:
+            self._tg_status_lbl.setText(f"✔ {msg}")
+            self._tg_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
+        else:
+            self._tg_status_lbl.setText(f"✕ {msg}")
+            self._tg_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
+
+    def _test_whatsapp(self) -> None:
+        phone = self._wa_phone_edit.text().strip()
+        apikey = self._wa_apikey_edit.text().strip()
+
+        if not phone or not apikey:
+            self._wa_status_lbl.setText("⚠ Ingresa tu Teléfono y tu API Key de CallMeBot.")
+            self._wa_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
+            return
+
+        self._wa_test_btn.setEnabled(False)
+        self._wa_test_btn.setText("Enviando...")
+        self._wa_status_lbl.setText("Conectando con CallMeBot...")
+        self._wa_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
+
+        self._active_worker = BotTestWorker(test_whatsapp, phone, apikey)
+        self._active_worker.finished_result.connect(self._on_whatsapp_test_result)
+        self._active_worker.start()
+
+    def _on_whatsapp_test_result(self, success: bool, msg: str) -> None:
+        self._wa_test_btn.setEnabled(True)
+        self._wa_test_btn.setText("💬 Enviar prueba a WhatsApp")
+        if success:
+            self._wa_status_lbl.setText(f"✔ {msg}")
+            self._wa_status_lbl.setStyleSheet("color: #34D399; font-weight: bold; font-size: 11px;")
+        else:
+            self._wa_status_lbl.setText(f"✕ {msg}")
+            self._wa_status_lbl.setStyleSheet("color: #F87171; font-weight: bold; font-size: 11px;")
+
     # ---- Voice tab ----
 
     def _build_voice_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
         self._voice_enabled_cb = QCheckBox("Habilitar reconocimiento de voz")
         layout.addWidget(self._voice_enabled_cb)
 
         form = QFormLayout()
-        form.setSpacing(10)
+        form.setSpacing(12)
 
         self._engine_combo = QComboBox()
         self._engine_combo.addItems(["Google (online)", "Vosk (offline)"])
-        form.addRow("Motor:", self._engine_combo)
+        form.addRow("Motor de voz:", self._engine_combo)
 
         vosk_row = QHBoxLayout()
         self._vosk_path_edit = QLineEdit()
@@ -192,14 +402,14 @@ class SettingsDialog(QDialog):
     def _build_categories_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
 
         self._cat_list = QListWidget()
         self._cat_list.setStyleSheet(
-            "QListWidget { background: #313244; border-radius: 8px; }"
-            "QListWidget::item { padding: 6px; border-radius: 4px; }"
-            "QListWidget::item:selected { background: #7c3aed; }"
+            "QListWidget { background: #161B24; border: 1px solid #232A36; border-radius: 8px; }"
+            "QListWidget::item { padding: 8px 12px; border-radius: 6px; font-weight: 600; }"
+            "QListWidget::item:selected { background: #1C1730; border: 1px solid #3B2F63; }"
         )
         layout.addWidget(self._cat_list)
 
@@ -211,8 +421,8 @@ class SettingsDialog(QDialog):
 
         for b in [add_btn, rename_btn, color_btn, del_btn]:
             b.setStyleSheet(
-                "QPushButton { background: #313244; color: #cdd6f4; border-radius: 6px;"
-                " padding: 5px 10px; } QPushButton:hover { background: #45475a; }"
+                "QPushButton { background: #1F2837; color: #CBD5E1; border: 1px solid #2D3748; border-radius: 6px;"
+                " padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #283344; color: #FFFFFF; }"
             )
             btn_row.addWidget(b)
 
@@ -228,7 +438,7 @@ class SettingsDialog(QDialog):
     def _refresh_categories(self) -> None:
         self._cat_list.clear()
         for cat in self._db.get_categories():
-            item = QListWidgetItem(cat["name"])
+            item = QListWidgetItem(f"●  {cat['name']}")
             item.setData(Qt.ItemDataRole.UserRole, cat)
             c = QColor(cat["color"])
             item.setForeground(c)
@@ -282,7 +492,7 @@ class SettingsDialog(QDialog):
     def _input_dialog(self, title: str, label: str, default: str = "") -> tuple[str, bool]:
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
-        dlg.setFixedWidth(320)
+        dlg.setFixedWidth(340)
         layout = QVBoxLayout(dlg)
         layout.addWidget(QLabel(label))
         edit = QLineEdit(default)
@@ -314,6 +524,14 @@ class SettingsDialog(QDialog):
         m = s.get("daily_summary_minute", 0)
         self._summary_time_edit.setTime(QTime(h, m))
 
+        # Bots
+        self._tg_enabled_cb.setChecked(s.get("telegram_enabled", False))
+        self._tg_token_edit.setText(s.get("telegram_bot_token", ""))
+        self._tg_chat_id_edit.setText(s.get("telegram_chat_id", ""))
+        self._wa_enabled_cb.setChecked(s.get("whatsapp_enabled", False))
+        self._wa_phone_edit.setText(s.get("whatsapp_phone", ""))
+        self._wa_apikey_edit.setText(s.get("whatsapp_apikey", ""))
+
         # Voice
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
         engine = s.get("voice_engine", "google")
@@ -330,6 +548,12 @@ class SettingsDialog(QDialog):
             "daily_summary_enabled": self._summary_enabled_cb.isChecked(),
             "daily_summary_hour":    t.hour(),
             "daily_summary_minute":  t.minute(),
+            "telegram_enabled":      self._tg_enabled_cb.isChecked(),
+            "telegram_bot_token":    self._tg_token_edit.text().strip(),
+            "telegram_chat_id":      self._tg_chat_id_edit.text().strip(),
+            "whatsapp_enabled":      self._wa_enabled_cb.isChecked(),
+            "whatsapp_phone":        self._wa_phone_edit.text().strip(),
+            "whatsapp_apikey":       self._wa_apikey_edit.text().strip(),
             "voice_enabled":         self._voice_enabled_cb.isChecked(),
             "voice_engine":          "google" if self._engine_combo.currentIndex() == 0 else "vosk",
             "vosk_model_path":       self._vosk_path_edit.text().strip(),

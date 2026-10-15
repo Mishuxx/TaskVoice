@@ -93,11 +93,13 @@ class NotificationManager:
         reminder_minutes: int = 30,
         daily_summary_hour: int = 9,
         daily_summary_minute: int = 0,
+        settings: Optional[Dict[str, Any]] = None,
     ):
         self._db = db
         self.reminder_minutes = reminder_minutes
         self.daily_summary_hour = daily_summary_hour
         self.daily_summary_minute = daily_summary_minute
+        self._settings: Dict[str, Any] = dict(settings) if settings else {}
         self._scheduler = None
         self._scheduled_reminders: Dict[int, str] = {}  # task_id -> job_id
         self._enabled = True
@@ -198,12 +200,26 @@ class NotificationManager:
             except Exception:
                 pass
 
+    def update_settings(self, settings: Dict[str, Any]) -> None:
+        """Update notification settings including external bot configs."""
+        self._settings = dict(settings)
+
+    def _notify(self, title: str, message: str, timeout: int = 10) -> None:
+        """Send notification via local desktop backend and external bots (Telegram / WhatsApp)."""
+        send_notification(title, message, timeout=timeout)
+        if self._settings:
+            try:
+                from core.bot_notifier import send_bot_notification_async
+                send_bot_notification_async(title, message, self._settings)
+            except Exception as exc:
+                logger.debug("Failed to dispatch bot notification: %s", exc)
+
     def _send_task_reminder(self, task: Dict[str, Any]) -> None:
         """Called by APScheduler to send the actual reminder notification."""
         title = f"⏰ Recordatorio: {task.get('title', 'Tarea')}"
         due = task.get("due_date", "")
         message = f"Vence en {self.reminder_minutes} min" + (f" ({due})" if due else "")
-        send_notification(title, message)
+        self._notify(title, message)
 
     # ------------------------------------------------------------------
     # Periodic check
@@ -243,7 +259,7 @@ class NotificationManager:
                 f"Completadas hoy: {completed_today}\n"
                 f"Vencidas: {overdue}"
             )
-            send_notification("📋 Resumen diario – TaskVoice", message, timeout=15)
+            self._notify("📋 Resumen diario – Taskmaster", message, timeout=15)
         except Exception as exc:
             logger.error("Error generating daily summary: %s", exc)
 
