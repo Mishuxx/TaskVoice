@@ -731,9 +731,9 @@ class MainWindow(QMainWindow):
         title = params.get("title", "")
         if cmd_type == "add_task":
             if title:
-                task_id = self._db.add_task(title=title)
+                self._db.add_task(title=title)
                 self._refresh_tasks()
-                self.statusBar().showMessage(f'✅ Tarea añadida: "{title}"', 4000)
+                self.statusBar().showMessage(f'🎙 Tarea añadida: "{title}"', 5000)
         elif cmd_type == "complete_task":
             tasks = self._db.get_all_tasks(search=title)
             if tasks:
@@ -753,7 +753,14 @@ class MainWindow(QMainWindow):
                 8000,
             )
         else:
-            self.statusBar().showMessage(f'❓ Comando no reconocido: "{params.get("raw", "")}"', 4000)
+            # ── Fallback: cualquier texto que no sea un comando conocido
+            # se trata directamente como título de nueva tarea ──────────
+            raw = params.get("raw", "").strip()
+            if raw:
+                self._db.add_task(title=raw)
+                self._refresh_tasks()
+                self.statusBar().showMessage(f'🎙 Tarea creada: "{raw}"', 5000)
+
 
     # ------------------------------------------------------------------
     # Category sidebar

@@ -33,28 +33,34 @@ logger = logging.getLogger(__name__)
 # Command patterns (Spanish)
 # ---------------------------------------------------------------------------
 COMMAND_PATTERNS = [
-    # "añadir tarea título de la tarea"
-    (re.compile(r"(?:añadir|agregar)\s+tarea\s+(.+)", re.IGNORECASE), "add_task"),
-    # "nueva tarea título"
-    (re.compile(r"nueva\s+tarea\s+(.+)", re.IGNORECASE), "add_task"),
-    # "completar tarea título"
-    (re.compile(r"completar\s+tarea\s+(.+)", re.IGNORECASE), "complete_task"),
-    # "eliminar tarea título"
-    (re.compile(r"(?:eliminar|borrar)\s+tarea\s+(.+)", re.IGNORECASE), "delete_task"),
-    # "mostrar progreso"
-    (re.compile(r"mostrar\s+progreso", re.IGNORECASE), "show_progress"),
+    # Completar tarea
+    (re.compile(r"^(?:completar|terminar|finalizar|marcar\s+como\s+hecha)\s+(?:la\s+)?tarea\s+(.+)", re.IGNORECASE), "complete_task"),
+    (re.compile(r"^(?:completar|terminar|finalizar)\s+(.+)", re.IGNORECASE), "complete_task"),
+    # Eliminar tarea
+    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?tarea\s+(.+)", re.IGNORECASE), "delete_task"),
+    (re.compile(r"^(?:eliminar|borrar|quitar)\s+(.+)", re.IGNORECASE), "delete_task"),
+    # Mostrar progreso
+    (re.compile(r"^(?:mostrar|ver|cual\s+es\s+el)?\s*progreso", re.IGNORECASE), "show_progress"),
+    # Añadir / Crear tarea con prefijo
+    (re.compile(r"^(?:añadir|agregar|crear|nueva|poner|anotar|recordar)\s+(?:la\s+|una\s+)?tarea\s+(.+)", re.IGNORECASE), "add_task"),
+    (re.compile(r"^(?:tarea|nueva\s+tarea)\s*[:\-]?\s*(.+)", re.IGNORECASE), "add_task"),
+    (re.compile(r"^(?:recordar|anotar)\s+(.+)", re.IGNORECASE), "add_task"),
 ]
 
 
 def parse_command(text: str) -> Optional[Dict[str, Any]]:
     """
     Parse a recognised transcript into a command dict.
+    If no special command is matched, the spoken text is treated as a new task!
 
     Returns
     -------
-    dict with keys ``type`` and ``params``, or None if unrecognised.
+    dict with keys ``type`` and ``params``.
     """
     text = text.strip()
+    if not text:
+        return None
+
     for pattern, cmd_type in COMMAND_PATTERNS:
         m = pattern.search(text)
         if m:
@@ -62,7 +68,12 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
             if m.lastindex and m.lastindex >= 1:
                 params["title"] = m.group(1).strip()
             return {"type": cmd_type, "params": params}
-    return None
+
+    # Si el usuario simplemente dijo algo (ej. "comprar leche", "llamar al dentista"),
+    # se convierte automáticamente en una nueva tarea:
+    title = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+    return {"type": "add_task", "params": {"title": title, "raw": text}}
+
 
 
 # ===========================================================================
@@ -143,12 +154,23 @@ class _VoiceWorker(QObject):
                     text = result.get("text", "").strip()
                     if text:
                         self.text_recognised.emit(text)
+            if self._rec:
+                try:
+                    final_res = json.loads(self._rec.FinalResult())
+                    text = final_res.get("text", "").strip()
+                    if text:
+                        self.text_recognised.emit(text)
+                except Exception:
+                    pass
         except Exception as exc:
             self.error_occurred.emit(f"Error de audio Vosk: {exc}")
         finally:
             if stream:
-                stream.stop_stream()
-                stream.close()
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception:
+                    pass
             p.terminate()
 
     # ------------------------------------------------------------------
@@ -156,7 +178,7 @@ class _VoiceWorker(QObject):
     # ------------------------------------------------------------------
 
     def _run_google(self) -> None:
-        """Single-shot Google recognition (listens once, then emits)."""
+        """Continuous Google recognition keeping the microphone active."""
         try:
             import speech_recognition as sr  # type: ignore
         except ImportError:
@@ -168,24 +190,33 @@ class _VoiceWorker(QObject):
             return
 
         recognizer = sr.Recognizer()
-        while self._is_running():
-            try:
-                with sr.Microphone() as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.3)
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                text = recognizer.recognize_google(audio, language="es-ES")
-                if text:
-                    self.text_recognised.emit(text)
-            except sr.WaitTimeoutError:
-                pass  # no speech detected within timeout, loop again
-            except sr.UnknownValueError:
-                pass  # couldn't understand audio
-            except sr.RequestError as exc:
-                self.error_occurred.emit(f"Google Speech error: {exc}")
-                break
-            except Exception as exc:
-                self.error_occurred.emit(f"Error de micrófono: {exc}")
-                break
+        recognizer.dynamic_energy_threshold = True
+        recognizer.pause_threshold = 0.8
+        try:
+            with sr.Microphone() as source:
+                # Calibrar ruido de fondo una sola vez al inicio
+                try:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.4)
+                except Exception:
+                    pass
+
+                while self._is_running():
+                    try:
+                        audio = recognizer.listen(source, timeout=1.5, phrase_time_limit=12)
+                        text = recognizer.recognize_google(audio, language="es-ES")
+                        text = text.strip() if text else ""
+                        if text:
+                            self.text_recognised.emit(text)
+                    except sr.WaitTimeoutError:
+                        continue
+                    except sr.UnknownValueError:
+                        continue
+                    except sr.RequestError as exc:
+                        self.error_occurred.emit(f"Error de conexión de voz: {exc}")
+                        break
+        except Exception as exc:
+            self.error_occurred.emit(f"Error de micrófono: {exc}")
+
 
     # ------------------------------------------------------------------
     # Main entry point (called by QThread.started)

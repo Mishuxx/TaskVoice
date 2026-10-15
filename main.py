@@ -29,6 +29,7 @@ logger = logging.getLogger("taskvoice")
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 # --------------------------------------------------------------------------
 # Local imports
@@ -49,6 +50,26 @@ def main() -> int:
     app.setApplicationDisplayName("TaskVoice")
     app.setOrganizationName("Antigravity")
     app.setOrganizationDomain("antigravity.local")
+
+    # ------------------------------------------------------------------
+    # Single instance lock (prevent multiple instances)
+    # ------------------------------------------------------------------
+    server_name = "TaskVoice_SingleInstance_App_Server"
+    check_socket = QLocalSocket()
+    check_socket.connectToServer(server_name)
+    if check_socket.waitForConnected(400):
+        logger.info("Otra instancia de TaskVoice ya está abierta. Activando la ventana existente...")
+        check_socket.write(b"ACTIVATE")
+        check_socket.waitForBytesWritten(400)
+        check_socket.disconnectFromServer()
+        return 0
+
+    # Ensure stale server is removed and start listening
+    QLocalServer.removeServer(server_name)
+    local_server = QLocalServer()
+    if not local_server.listen(server_name):
+        logger.warning("No se pudo iniciar el servidor local de instancia única.")
+
 
     # Enable High-DPI scaling
     app.setHighDpiScaleFactorRoundingPolicy(
@@ -111,6 +132,22 @@ def main() -> int:
     window.show()
 
     # ------------------------------------------------------------------
+    # Bring window to front when another instance tries to open
+    # ------------------------------------------------------------------
+    def _on_single_instance_activate():
+        conn = local_server.nextPendingConnection()
+        if conn:
+            conn.waitForReadyRead(200)
+            conn.disconnectFromServer()
+        if window.isMinimized():
+            window.showNormal()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    local_server.newConnection.connect(_on_single_instance_activate)
+
+    # ------------------------------------------------------------------
     # SIGINT (Ctrl+C from terminal) → graceful quit
     # ------------------------------------------------------------------
     def _sigint_handler(*_):
@@ -145,10 +182,13 @@ def main() -> int:
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
+    local_server.close()
+    QLocalServer.removeServer(server_name)
     notifier.shutdown()
     db.close()
     logger.info("TaskVoice exited with code %d.", exit_code)
     return exit_code
+
 
 
 if __name__ == "__main__":
