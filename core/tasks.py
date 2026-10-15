@@ -60,6 +60,7 @@ class DatabaseManager:
         self._connect()
         self._create_schema()
         self._seed_categories()
+        self._seed_gamification()
 
     # ------------------------------------------------------------------
     # Connection management
@@ -127,6 +128,35 @@ class DatabaseManager:
             completed_at TEXT,
             archived_at  TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS user_gamification (
+            id                       INTEGER PRIMARY KEY CHECK(id = 1),
+            xp                       INTEGER NOT NULL DEFAULT 0,
+            level                    INTEGER NOT NULL DEFAULT 1,
+            total_xp                 INTEGER NOT NULL DEFAULT 0,
+            streak_days              INTEGER NOT NULL DEFAULT 1,
+            last_active_date         TEXT,
+            tasks_completed_count    INTEGER NOT NULL DEFAULT 0,
+            subtasks_completed_count INTEGER NOT NULL DEFAULT 0,
+            voice_commands_count     INTEGER NOT NULL DEFAULT 0,
+            quests_completed_count   INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS gamification_quests (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            quest_key     TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            description   TEXT NOT NULL,
+            faction       TEXT NOT NULL DEFAULT 'Comando Terran',
+            target_type   TEXT NOT NULL,
+            target_count  INTEGER NOT NULL,
+            current_count INTEGER NOT NULL DEFAULT 0,
+            xp_reward     INTEGER NOT NULL,
+            completed     INTEGER NOT NULL DEFAULT 0,
+            claimed       INTEGER NOT NULL DEFAULT 0,
+            quest_date    TEXT NOT NULL,
+            icon          TEXT NOT NULL DEFAULT '🎯'
+        );
         """
         with self._conn:
             self._conn.executescript(sql)
@@ -144,6 +174,24 @@ class DatabaseManager:
                 self._conn.executemany(
                     "INSERT INTO categories (name, color) VALUES (?, ?)",
                     DEFAULT_CATEGORIES
+                )
+
+    def _seed_gamification(self) -> None:
+        """Insert default gamification user profile if empty."""
+        cur = self._cursor()
+        cur.execute("SELECT COUNT(*) FROM user_gamification WHERE id = 1")
+        if cur.fetchone()[0] == 0:
+            today_str = date.today().isoformat()
+            with self._conn:
+                self._conn.execute(
+                    """
+                    INSERT INTO user_gamification (
+                        id, xp, level, total_xp, streak_days, last_active_date,
+                        tasks_completed_count, subtasks_completed_count,
+                        voice_commands_count, quests_completed_count
+                    ) VALUES (1, 0, 1, 0, 1, ?, 0, 0, 0, 0)
+                    """,
+                    (today_str,)
                 )
 
     # ==================================================================
@@ -679,6 +727,334 @@ class DatabaseManager:
         )
         return [dict(r) for r in cur.fetchall()]
 
+    # ==================================================================
+    # GAMIFICATION & MISSIONS
+    # ==================================================================
+
+    def get_gamification_profile(self) -> Dict[str, Any]:
+        """Return the current user RPG progression profile."""
+        cur = self._cursor()
+        cur.execute("SELECT * FROM user_gamification WHERE id = 1")
+        row = cur.fetchone()
+        if not row:
+            self._seed_gamification()
+            cur.execute("SELECT * FROM user_gamification WHERE id = 1")
+            row = cur.fetchone()
+
+        profile = dict(row)
+        today_str = date.today().isoformat()
+        last_active = profile.get("last_active_date")
+
+        # Update daily streak
+        if last_active != today_str:
+            from datetime import timedelta
+            yesterday_str = (date.today() - timedelta(days=1)).isoformat()
+            if last_active == yesterday_str:
+                new_streak = profile["streak_days"] + 1
+            else:
+                new_streak = 1
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE user_gamification SET streak_days = ?, last_active_date = ? WHERE id = 1",
+                    (new_streak, today_str)
+                )
+            profile["streak_days"] = new_streak
+            profile["last_active_date"] = today_str
+
+        level = profile["level"]
+        xp = profile["xp"]
+        xp_needed = get_xp_needed_for_level(level)
+        progress_pct = min(100.0, round((xp / xp_needed) * 100, 1)) if xp_needed > 0 else 100.0
+        rank_info = get_rank_info(level)
+
+        # Count unclaimed completed quests
+        cur.execute(
+            "SELECT COUNT(*) FROM gamification_quests WHERE quest_date = ? AND completed = 1 AND claimed = 0",
+            (today_str,)
+        )
+        unclaimed_quests = cur.fetchone()[0]
+
+        return {
+            "level": level,
+            "xp": xp,
+            "xp_needed": xp_needed,
+            "xp_progress_pct": progress_pct,
+            "total_xp": profile["total_xp"],
+            "streak_days": profile["streak_days"],
+            "tasks_completed_count": profile["tasks_completed_count"],
+            "subtasks_completed_count": profile["subtasks_completed_count"],
+            "voice_commands_count": profile["voice_commands_count"],
+            "quests_completed_count": profile["quests_completed_count"],
+            "unclaimed_quests": unclaimed_quests,
+            "rank": rank_info,
+        }
+
+    def add_xp(self, amount: int, reason: str = "") -> Dict[str, Any]:
+        """
+        Add XP to the user, handle level-ups, and update the database.
+        Returns level-up info and new stats.
+        """
+        cur = self._cursor()
+        cur.execute("SELECT xp, level, total_xp FROM user_gamification WHERE id = 1")
+        row = cur.fetchone()
+        if not row:
+            self._seed_gamification()
+            cur.execute("SELECT xp, level, total_xp FROM user_gamification WHERE id = 1")
+            row = cur.fetchone()
+
+        xp = row["xp"] + amount
+        total_xp = row["total_xp"] + amount
+        level = row["level"]
+        old_level = level
+        leveled_up = False
+
+        xp_needed = get_xp_needed_for_level(level)
+        while xp >= xp_needed:
+            xp -= xp_needed
+            level += 1
+            leveled_up = True
+            xp_needed = get_xp_needed_for_level(level)
+
+        with self._conn:
+            self._conn.execute(
+                "UPDATE user_gamification SET xp = ?, level = ?, total_xp = ? WHERE id = 1",
+                (xp, level, total_xp)
+            )
+
+        rank_info = get_rank_info(level)
+        return {
+            "amount_added": amount,
+            "leveled_up": leveled_up,
+            "old_level": old_level,
+            "new_level": level,
+            "current_xp": xp,
+            "xp_needed": xp_needed,
+            "total_xp": total_xp,
+            "rank": rank_info,
+            "reason": reason,
+        }
+
+    def get_daily_quests(self) -> List[Dict[str, Any]]:
+        """Return daily quests for today, creating them if not existing."""
+        today_str = date.today().isoformat()
+        cur = self._cursor()
+        cur.execute("SELECT * FROM gamification_quests WHERE quest_date = ? ORDER BY claimed ASC, completed DESC, id ASC", (today_str,))
+        quests = [dict(r) for r in cur.fetchall()]
+
+        if not quests:
+            default_quests = [
+                (
+                    "daily_first_blood",
+                    "Primera Sangre Táctica",
+                    "Neutraliza al menos 1 tarea cualquiera de tu lista de operaciones.",
+                    "Comando Terran",
+                    "task_completed",
+                    1,
+                    60,
+                    today_str,
+                    "⚔️",
+                ),
+                (
+                    "daily_purge_sector",
+                    "Purga del Sector",
+                    "Completa 3 tareas operativas durante la jornada.",
+                    "Exiliados de Wraeclast",
+                    "task_completed",
+                    3,
+                    150,
+                    today_str,
+                    "🎯",
+                ),
+                (
+                    "daily_critical_op",
+                    "Protocolo Omega Crítico",
+                    "Completa una tarea clasificada de prioridad Alta sin dudar.",
+                    "Conclave Protoss",
+                    "urgent_completed",
+                    1,
+                    120,
+                    today_str,
+                    "🚨",
+                ),
+                (
+                    "daily_psionic_voice",
+                    "Enlace Psiónico de Voz",
+                    "Ejecuta una acción usando tu voz mediante comandos tácticos.",
+                    "Comando Táctico",
+                    "voice_command",
+                    1,
+                    80,
+                    today_str,
+                    "🎙️",
+                ),
+                (
+                    "daily_squad_micro",
+                    "Microgestión de Escuadra",
+                    "Completa al menos 2 subtareas en tus asignaciones.",
+                    "Armería del Dominio",
+                    "subtask_completed",
+                    2,
+                    100,
+                    today_str,
+                    "🛡️",
+                ),
+            ]
+            with self._conn:
+                self._conn.executemany(
+                    """
+                    INSERT INTO gamification_quests (
+                        quest_key, title, description, faction,
+                        target_type, target_count, xp_reward, quest_date, icon
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    default_quests
+                )
+            cur.execute("SELECT * FROM gamification_quests WHERE quest_date = ? ORDER BY claimed ASC, completed DESC, id ASC", (today_str,))
+            quests = [dict(r) for r in cur.fetchall()]
+
+        return quests
+
+    def record_action(self, action_type: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Record a gamified action (task_completed, subtask_completed, voice_command),
+        grant XP, advance daily quests, and check for completions/level-ups.
+        """
+        meta = metadata or {}
+        today_str = date.today().isoformat()
+        self.get_daily_quests()  # Ensure quests for today exist
+
+        xp_gained = 0
+        cur = self._cursor()
+
+        # Update action counters
+        if action_type == "task_completed":
+            prio = meta.get("priority", 2)
+            xp_gained = 30 if prio == 1 else (60 if prio == 2 else 100)
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE user_gamification SET tasks_completed_count = tasks_completed_count + 1 WHERE id = 1"
+                )
+
+            # Advance task_completed quests
+            with self._conn:
+                self._conn.execute(
+                    """
+                    UPDATE gamification_quests
+                    SET current_count = current_count + 1
+                    WHERE quest_date = ? AND target_type = 'task_completed' AND completed = 0
+                    """,
+                    (today_str,)
+                )
+            # If high priority, advance urgent_completed quests
+            if prio == 3:
+                with self._conn:
+                    self._conn.execute(
+                        """
+                        UPDATE gamification_quests
+                        SET current_count = current_count + 1
+                        WHERE quest_date = ? AND target_type = 'urgent_completed' AND completed = 0
+                        """,
+                        (today_str,)
+                    )
+
+        elif action_type == "subtask_completed":
+            xp_gained = 15
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE user_gamification SET subtasks_completed_count = subtasks_completed_count + 1 WHERE id = 1"
+                )
+                self._conn.execute(
+                    """
+                    UPDATE gamification_quests
+                    SET current_count = current_count + 1
+                    WHERE quest_date = ? AND target_type = 'subtask_completed' AND completed = 0
+                    """,
+                    (today_str,)
+                )
+
+        elif action_type == "voice_command":
+            xp_gained = 25
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE user_gamification SET voice_commands_count = voice_commands_count + 1 WHERE id = 1"
+                )
+                self._conn.execute(
+                    """
+                    UPDATE gamification_quests
+                    SET current_count = current_count + 1
+                    WHERE quest_date = ? AND target_type = 'voice_command' AND completed = 0
+                    """,
+                    (today_str,)
+                )
+
+        # Check newly completed quests
+        cur.execute(
+            """
+            SELECT * FROM gamification_quests
+            WHERE quest_date = ? AND completed = 0 AND current_count >= target_count
+            """,
+            (today_str,)
+        )
+        newly_completed = [dict(r) for r in cur.fetchall()]
+        if newly_completed:
+            with self._conn:
+                self._conn.execute(
+                    """
+                    UPDATE gamification_quests
+                    SET completed = 1
+                    WHERE quest_date = ? AND completed = 0 AND current_count >= target_count
+                    """,
+                    (today_str,)
+                )
+
+        # Award base action XP
+        xp_result = self.add_xp(xp_gained, reason=f"Acción: {action_type}")
+        xp_result["newly_completed_quests"] = newly_completed
+
+        return xp_result
+
+    def claim_quest(self, quest_id: int) -> Dict[str, Any]:
+        """Claim the reward of a completed quest."""
+        cur = self._cursor()
+        cur.execute("SELECT * FROM gamification_quests WHERE id = ?", (quest_id,))
+        row = cur.fetchone()
+        if not row:
+            return {"success": False, "error": "Misión no encontrada"}
+
+        quest = dict(row)
+        if quest["claimed"]:
+            return {"success": False, "error": "Esta misión ya fue reclamada"}
+        if not quest["completed"]:
+            return {"success": False, "error": "La misión aún no ha sido completada"}
+
+        with self._conn:
+            self._conn.execute("UPDATE gamification_quests SET claimed = 1 WHERE id = ?", (quest_id,))
+            self._conn.execute("UPDATE user_gamification SET quests_completed_count = quests_completed_count + 1 WHERE id = 1")
+
+        xp_res = self.add_xp(quest["xp_reward"], reason=f"Misión: {quest['title']}")
+        return {
+            "success": True,
+            "quest": quest,
+            "xp_res": xp_res,
+        }
+
+    def reset_gamification(self) -> None:
+        """Reset gamification stats to level 1 with 0 XP."""
+        today_str = date.today().isoformat()
+        with self._conn:
+            self._conn.execute("DELETE FROM gamification_quests")
+            self._conn.execute(
+                """
+                UPDATE user_gamification
+                SET xp = 0, level = 1, total_xp = 0, streak_days = 1,
+                    last_active_date = ?, tasks_completed_count = 0,
+                    subtasks_completed_count = 0, voice_commands_count = 0,
+                    quests_completed_count = 0
+                WHERE id = 1
+                """,
+                (today_str,)
+            )
+
     # ------------------------------------------------------------------
     # Context manager support
     # ------------------------------------------------------------------
@@ -688,3 +1064,44 @@ class DatabaseManager:
 
     def __exit__(self, *_):
         self.close()
+
+
+# ===========================================================================
+# GAMIFICATION CONSTANTS & RANKS
+# ===========================================================================
+
+RANKS = [
+    (1, "Recluta Terran", "⚔️", "Primeros pasos en la línea de frente."),
+    (2, "Soldado Marine", "🛡️", "Veterano de escaramuzas tácticas."),
+    (3, "Fantasma Psiónico", "⚡", "Especialista en operaciones encubiertas."),
+    (4, "Inquisidor del Vacío", "🔥", "Purificador de sectores hostiles."),
+    (5, "Piloto Siege Tank", "💎", "Poder de fuego destructivo y disciplinado."),
+    (6, "Exiliado Ascendente", "🌌", "Ha trascendido las pruebas del laberinto."),
+    (7, "Matadioses del Atlas", "👑", "Dominador de las fuerzas cósmicas."),
+    (8, "Capitán Battlecruiser", "🪐", "Comandante supremo de flotas estelares."),
+    (9, "Alto Templario", "🌟", "Maestría psiónica y concentración absoluta."),
+    (10, "Arconte Supremo", "⚡", "Fusión pura de energía y voluntad imparable."),
+]
+
+
+def get_rank_info(level: int) -> Dict[str, Any]:
+    """Return rank title, icon, description, and next rank info for a level."""
+    current = RANKS[0]
+    next_rank = RANKS[1] if len(RANKS) > 1 else None
+    for idx, r in enumerate(RANKS):
+        if level >= r[0]:
+            current = r
+            next_rank = RANKS[idx + 1] if idx + 1 < len(RANKS) else None
+    return {
+        "title": current[1],
+        "icon": current[2],
+        "desc": current[3],
+        "level": current[0],
+        "next_title": next_rank[1] if next_rank else "Máximo Rango Alcanzado",
+        "next_level": next_rank[0] if next_rank else None,
+    }
+
+
+def get_xp_needed_for_level(level: int) -> int:
+    """XP needed to advance from level to level + 1."""
+    return 100 + level * 50

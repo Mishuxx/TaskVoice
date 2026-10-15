@@ -6,15 +6,22 @@
 
 ## 📋 Características
 
-- ✅ **Gestión completa de tareas** con subtareas, categorías, prioridades y fechas de vencimiento
-- 🎙️ **Comandos de voz** para crear, completar y eliminar tareas sin usar el teclado
-- 🔔 **Notificaciones de escritorio** con recordatorios automáticos 30 minutos antes del vencimiento
-- 📊 **Barra de progreso** por tarea basada en subtareas completadas
-- 🌙 **Tema oscuro/claro** moderno y elegante
-- 🗂️ **Categorías personalizables** con colores
-- 🔍 **Búsqueda y filtrado** de tareas
-- 📌 **Icono en bandeja del sistema** con acceso rápido
-- ⌨️ **Atajos de teclado** (Ctrl+N para nueva tarea)
+- 🎮 **Gamificación & RPG (Estilo StarCraft II / Path of Exile)**:
+  - Sistema de **Experiencia (XP)** y **Niveles** progresivos con rangos tácticos (Recluta Terran, Fantasma Psiónico, Piloto Siege Tank, Exiliado Ascendente, Matadioses del Atlas, Arconte Supremo).
+  - **Misiones y Operaciones Diarias**: Bounties y asignaciones tácticas que otorgan jugosas recompensas de XP al cumplirse.
+  - **UI Cyber-Gothic / Dark Sci-Fi**: Interfaz inspirada en las consolas de mando de StarCraft y la estética gótica oscura y resplandeciente de Path of Exile.
+  - **HUD de Comandante**: Visualización en tiempo real de nivel, rango, racha de días y barra de XP.
+  - **Diálogo de Level Up**: Animación y felicitación al ascender de rango.
+- 📊 **Dashboard Gráfico y Analítico**:
+  - Gráfico de dona (Donut Chart) interactivo con porcentaje de completitud.
+  - Histograma de actividad y productividad diaria de los últimos 7 días.
+  - Barras de progreso por categoría y prioridad.
+  - Botón de **Reiniciar** con confirmación segura para archivar completadas o reiniciar estadísticas.
+- ✅ **Gestión completa de tareas** con subtareas, categorías, prioridades y fechas de vencimiento.
+- 🎙️ **Comandos de voz continuos** para crear tareas con prioridad, completarlas por número ("completar tarea 1"), abrir el dashboard o consultar misiones.
+- 🔔 **Notificaciones de escritorio** con recordatorios automáticos.
+- 🔒 **Instancia única**: Previene abrir ventanas duplicadas por error.
+- ⌨️ **Atajos de teclado** (Ctrl+N para nueva tarea, Ctrl+M para voz).
 
 ---
 
@@ -56,11 +63,14 @@ El ejecutable se generará en `dist/TaskVoice.exe`.
 
 | Comando | Acción |
 |---|---|
-| `añadir tarea [título]` | Crea una nueva tarea con el título indicado |
-| `nueva tarea [título]` | Crea una nueva tarea con el título indicado |
-| `completar tarea [título]` | Marca como completada la tarea indicada |
-| `eliminar tarea [título]` | Elimina la tarea indicada |
-| `mostrar progreso` | Muestra el resumen de progreso general |
+| `[título de la tarea]` | Crea directamente una tarea con lo que digas |
+| `[título] prioridad alta / media / baja` | Crea la tarea asignando la prioridad indicada |
+| `completar tarea [número o título]` | Marca como completada (ej. `completar tarea uno` o `completar la 2`) |
+| `eliminar tarea [número o título]` | Elimina la tarea especificada |
+| `mostrar misiones` / `ver misiones` | Abre la pestaña del Centro de Misiones & RPG |
+| `mi nivel` / `experiencia` | Consulta el nivel, rango actual y progreso de XP |
+| `mostrar dash` / `ver dashboard` | Abre el Dashboard visual con gráficos estadísticos |
+| `ver tareas` / `mostrar tareas` | Regresa a la vista principal de la lista de tareas |
 
 ### Motores de reconocimiento de voz
 

@@ -116,6 +116,10 @@ def extract_priority(text: str) -> tuple[str, int]:
 # Command patterns (Spanish)
 # ---------------------------------------------------------------------------
 COMMAND_PATTERNS = [
+    # Mostrar Misiones / RPG / Operaciones
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+las?)?|consultar)?\s*(?:las?\s+)?(?:misiones|mision|operaciones|bounties|rpg)[\.\!\?]?$", re.IGNORECASE), "show_missions"),
+    # Consultar Nivel / Rango / XP
+    (re.compile(r"^(?:mostrar|ver|consultar|cu[aá]l\s+es)?\s*(?:mi\s+)?(?:nivel|rango|experiencia|xp|perfil)[\.\!\?]?$", re.IGNORECASE), "show_level"),
     # Mostrar Dashboard / Estadísticas (ej. "mostrar dash", "ver dashboard", "panel", "estadísticas", "progreso")
     (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?|entrar\s+al?)?\s*(?:el\s+)?(?:dashboard|dash|panel|estad[ií]sticas?|m[eé]tricas?|gr[aá]ficos?|progreso)[\.\!\?]?$", re.IGNORECASE), "show_dashboard"),
     # Mostrar Tareas / Lista

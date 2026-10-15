@@ -47,6 +47,7 @@ from core.notifier import NotificationManager
 from ui.task_widget import TaskWidget
 from ui.settings_dialog import SettingsDialog
 from ui.dashboard_widget import DashboardWidget
+from ui.gamification_widget import GamificationWidget, LevelUpDialog
 
 
 
@@ -71,90 +72,127 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 }
 
 # ---------------------------------------------------------------------------
-# Dark / Light QSS themes
+# Dark (StarCraft / PoE Cyber-Gothic) / Light QSS themes
 # ---------------------------------------------------------------------------
 DARK_QSS = """
 QMainWindow, QWidget {
-    background-color: #1e1e2e;
-    color: #cdd6f4;
+    background-color: #090c13;
+    color: #e2e8f0;
     font-family: 'Segoe UI', Arial, sans-serif;
 }
 QToolBar {
-    background: #181825;
-    border-bottom: 1px solid #313244;
-    padding: 4px;
-    spacing: 6px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #121724, stop:1 #0c0f18);
+    border-bottom: 1px solid #1f2d42;
+    padding: 6px 10px;
+    spacing: 8px;
 }
 QToolBar QToolButton {
-    background: #313244;
-    color: #cdd6f4;
+    background: #141b29;
+    color: #cbd5e1;
+    border: 1px solid #1f2d42;
     border-radius: 6px;
-    padding: 4px 10px;
+    padding: 5px 12px;
 }
-QToolBar QToolButton:hover { background: #45475a; }
+QToolBar QToolButton:hover {
+    background: #1e283d;
+    border-color: #00f0ff;
+    color: #00f0ff;
+}
 QLineEdit {
-    background: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
+    background: #0f1420;
+    color: #f1f5f9;
+    border: 1px solid #1f2d42;
     border-radius: 6px;
     padding: 5px 10px;
 }
-QLineEdit:focus { border: 1px solid #7c3aed; }
+QLineEdit:focus {
+    border: 1px solid #00f0ff;
+    background: #131929;
+}
 QComboBox {
-    background: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
+    background: #0f1420;
+    color: #f1f5f9;
+    border: 1px solid #1f2d42;
     border-radius: 6px;
     padding: 4px 8px;
 }
+QComboBox:focus { border: 1px solid #00f0ff; }
 QComboBox::drop-down { border: none; }
 QComboBox QAbstractItemView {
-    background: #313244;
-    color: #cdd6f4;
-    selection-background-color: #7c3aed;
+    background: #0f1420;
+    color: #f1f5f9;
+    selection-background-color: #0284c7;
+    border: 1px solid #1f2d42;
 }
 QScrollBar:vertical {
-    background: #1e1e2e;
+    background: #090c13;
     width: 8px;
     border-radius: 4px;
 }
 QScrollBar::handle:vertical {
-    background: #45475a;
+    background: #1f2d42;
     border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #00b4d8;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QStatusBar {
-    background: #181825;
-    color: #6c7086;
+    background: #090c13;
+    color: #64748b;
     font-size: 12px;
-    border-top: 1px solid #313244;
+    border-top: 1px solid #1f2d42;
 }
-QSplitter::handle { background: #313244; width: 1px; }
-QLabel { color: #cdd6f4; }
-QGroupBox { color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 10px; }
+QSplitter::handle { background: #1f2d42; width: 1px; }
+QLabel { color: #e2e8f0; }
+QGroupBox {
+    color: #00f0ff;
+    font-weight: 700;
+    border: 1px solid #1f2d42;
+    border-radius: 6px;
+    margin-top: 10px;
+}
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
 QSpinBox, QDateTimeEdit {
-    background: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
+    background: #0f1420;
+    color: #f1f5f9;
+    border: 1px solid #1f2d42;
     border-radius: 6px;
     padding: 4px 8px;
 }
-QCheckBox { color: #cdd6f4; }
-QCheckBox::indicator { border: 2px solid #45475a; border-radius: 4px; width: 14px; height: 14px; }
-QCheckBox::indicator:checked { background: #7c3aed; border-color: #7c3aed; }
+QCheckBox { color: #e2e8f0; }
+QCheckBox::indicator {
+    border: 1px solid #1f2d42;
+    background: #0f1420;
+    border-radius: 4px;
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:checked {
+    background: #00f0ff;
+    border-color: #00f0ff;
+}
 QTextEdit {
-    background: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
+    background: #0f1420;
+    color: #f1f5f9;
+    border: 1px solid #1f2d42;
     border-radius: 6px;
     padding: 6px;
 }
-QDialog { background: #1e1e2e; }
-QTabWidget::pane { border: none; }
-QTabBar::tab { background: #313244; color: #cdd6f4; padding: 8px 18px; }
-QTabBar::tab:selected { background: #7c3aed; color: #fff; }
-QMessageBox { background: #1e1e2e; }
+QDialog { background: #0c1017; }
+QTabWidget::pane { border: 1px solid #1f2d42; background: #0c1017; }
+QTabBar::tab {
+    background: #101624;
+    color: #94a3b8;
+    padding: 8px 18px;
+}
+QTabBar::tab:selected {
+    background: #182236;
+    color: #00f0ff;
+    border-bottom: 2px solid #00f0ff;
+    font-weight: 700;
+}
+QMessageBox { background: #0c1017; }
 """
 
 LIGHT_QSS = """
@@ -467,6 +505,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_categories_sidebar()
         self._refresh_tasks()
+        self._refresh_gamification_hud()
         self._start_status_refresh()
 
     # ------------------------------------------------------------------
@@ -552,12 +591,15 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right_panel)
         splitter.setSizes([200, 700])
 
-        # Stacked view: 0 = Tasks list, 1 = Graphical Dashboard
+        # Stacked view: 0 = Tasks list, 1 = Graphical Dashboard, 2 = Gamification & Missions Hub
         self._stack = QStackedWidget()
         self._stack.addWidget(splitter)
         self._dashboard_view = DashboardWidget(self._db, parent=self)
         self._dashboard_view.data_reset.connect(self._on_dashboard_reset)
         self._stack.addWidget(self._dashboard_view)
+        self._gamification_view = GamificationWidget(self._db, parent=self)
+        self._gamification_view.profile_updated.connect(self._refresh_gamification_hud)
+        self._stack.addWidget(self._gamification_view)
 
         root_layout.addWidget(self._stack)
 
@@ -606,13 +648,13 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
-        # View Switcher (Lista vs Dashboard)
+        # View Switcher (Lista vs Dashboard vs Misiones)
         self._btn_view_tasks = QPushButton("📋 Tareas")
         self._btn_view_tasks.setCheckable(True)
         self._btn_view_tasks.setChecked(True)
         self._btn_view_tasks.setStyleSheet(
-            "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-            "QPushButton:hover { background: #6d28d9; }"
+            "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
+            "QPushButton:hover { background: #0369a1; }"
         )
         self._btn_view_tasks.clicked.connect(self._show_tasks_view)
         tb.addWidget(self._btn_view_tasks)
@@ -621,11 +663,57 @@ class MainWindow(QMainWindow):
         self._btn_view_dashboard.setCheckable(True)
         self._btn_view_dashboard.setChecked(False)
         self._btn_view_dashboard.setStyleSheet(
-            "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-            "QPushButton:hover { background: #45475a; }"
+            "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+            "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
         )
         self._btn_view_dashboard.clicked.connect(self._show_dashboard_view)
         tb.addWidget(self._btn_view_dashboard)
+
+        self._btn_view_missions = QPushButton("⚔️ Misiones")
+        self._btn_view_missions.setCheckable(True)
+        self._btn_view_missions.setChecked(False)
+        self._btn_view_missions.setStyleSheet(
+            "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+            "QPushButton:hover { background: #1e283d; color: #ffd166; }"
+        )
+        self._btn_view_missions.clicked.connect(self._show_missions_view)
+        tb.addWidget(self._btn_view_missions)
+
+        tb.addSeparator()
+
+        # Mini Commander HUD in Toolbar
+        self._hud_frame = QFrame()
+        self._hud_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hud_frame.setToolTip("Haz clic para abrir el Centro de Misiones & RPG")
+        self._hud_frame.setStyleSheet(
+            "QFrame { background: #101624; border: 1px solid #1f2d42; border-radius: 6px; padding: 2px 8px; }"
+            "QFrame:hover { border-color: #00f0ff; background: #151e30; }"
+        )
+        hud_l = QHBoxLayout(self._hud_frame)
+        hud_l.setContentsMargins(6, 2, 6, 2)
+        hud_l.setSpacing(6)
+
+        self._hud_lvl_badge = QLabel("⚔️ L1")
+        self._hud_lvl_badge.setStyleSheet("color: #ffd166; font-weight: 800; font-size: 11px;")
+        hud_l.addWidget(self._hud_lvl_badge)
+
+        self._hud_rank_lbl = QLabel("Recluta Terran")
+        self._hud_rank_lbl.setStyleSheet("color: #00f0ff; font-weight: 700; font-size: 11px;")
+        hud_l.addWidget(self._hud_rank_lbl)
+
+        self._hud_xp_bar = QProgressBar()
+        self._hud_xp_bar.setRange(0, 100)
+        self._hud_xp_bar.setValue(0)
+        self._hud_xp_bar.setFixedSize(60, 7)
+        self._hud_xp_bar.setTextVisible(False)
+        self._hud_xp_bar.setStyleSheet(
+            "QProgressBar { background: #0a0d14; border: 1px solid #1f2d42; border-radius: 3px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00f0ff); border-radius: 2px; }"
+        )
+        hud_l.addWidget(self._hud_xp_bar)
+
+        self._hud_frame.mousePressEvent = lambda ev: self._show_missions_view()
+        tb.addWidget(self._hud_frame)
 
         tb.addSeparator()
 
@@ -766,6 +854,19 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str, dict)
     def _on_voice_command(self, cmd_type: str, params: dict) -> None:
         title = params.get("title", "")
+
+        # Record voice action in RPG progression
+        v_res = self._db.record_action("voice_command", {"command": cmd_type})
+        self._refresh_gamification_hud()
+        if hasattr(self, "_gamification_view"):
+            self._gamification_view.refresh_data()
+        if v_res.get("leveled_up"):
+            dlg = LevelUpDialog(v_res["new_level"], v_res["rank"]["title"], v_res["rank"]["icon"], self)
+            dlg.exec()
+        elif v_res.get("newly_completed_quests"):
+            q_titles = ", ".join(q["title"] for q in v_res["newly_completed_quests"])
+            self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}!", 5000)
+
         if cmd_type == "add_task":
             if title:
                 priority = params.get("priority", 2)
@@ -781,8 +882,7 @@ class MainWindow(QMainWindow):
             if target_num is not None:
                 if 1 <= target_num <= len(self._current_tasks):
                     task_to_complete = self._current_tasks[target_num - 1]
-                    self._db.complete_task(task_to_complete["id"])
-                    self._refresh_tasks()
+                    self._on_task_completed(task_to_complete["id"])
                     self.statusBar().showMessage(
                         f'✅ Tarea #{target_num} completada: "{task_to_complete["title"]}"', 5000
                     )
@@ -793,8 +893,7 @@ class MainWindow(QMainWindow):
             else:
                 tasks = self._db.get_all_tasks(search=title)
                 if tasks:
-                    self._db.complete_task(tasks[0]["id"])
-                    self._refresh_tasks()
+                    self._on_task_completed(tasks[0]["id"])
                     self.statusBar().showMessage(f'✅ Completada: "{tasks[0]["title"]}"', 4000)
                 else:
                     self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
@@ -827,6 +926,15 @@ class MainWindow(QMainWindow):
         elif cmd_type in ("show_progress", "show_dashboard"):
             self._show_dashboard_view()
             self.statusBar().showMessage("📊 Mostrando Dashboard gráfico", 4000)
+        elif cmd_type == "show_missions":
+            self._show_missions_view()
+            self.statusBar().showMessage("⚔️ Mostrando Centro de Misiones & RPG", 4000)
+        elif cmd_type == "show_level":
+            prof = self._db.get_gamification_profile()
+            self.statusBar().showMessage(
+                f"⚔️ Nivel {prof['level']} – {prof['rank']['title']} | XP: {prof['xp']}/{prof['xp_needed']} ({prof['xp_progress_pct']}%) | Racha: {prof['streak_days']} días",
+                7000
+            )
         elif cmd_type == "show_tasks":
             self._show_tasks_view()
             self.statusBar().showMessage("📋 Mostrando lista de tareas", 4000)
@@ -842,9 +950,8 @@ class MainWindow(QMainWindow):
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
                 self.statusBar().showMessage(f'🎙 Tarea creada [{prio_name}]: "{title}"', 5000)
 
-
     # ------------------------------------------------------------------
-    # View Switching (Tasks List vs Dashboard)
+    # View Switching (Tasks List vs Dashboard vs Missions)
     # ------------------------------------------------------------------
 
     def _show_tasks_view(self) -> None:
@@ -853,16 +960,23 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_btn_view_tasks"):
             self._btn_view_tasks.setChecked(True)
             self._btn_view_tasks.setStyleSheet(
-                "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-                "QPushButton:hover { background: #6d28d9; }"
+                "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
+                "QPushButton:hover { background: #0369a1; }"
             )
         if hasattr(self, "_btn_view_dashboard"):
             self._btn_view_dashboard.setChecked(False)
             self._btn_view_dashboard.setStyleSheet(
-                "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-                "QPushButton:hover { background: #45475a; }"
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
+            )
+        if hasattr(self, "_btn_view_missions"):
+            self._btn_view_missions.setChecked(False)
+            self._btn_view_missions.setStyleSheet(
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #ffd166; }"
             )
         self._refresh_tasks()
+        self._refresh_gamification_hud()
 
     def _show_dashboard_view(self) -> None:
         if hasattr(self, "_stack"):
@@ -870,21 +984,89 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_btn_view_dashboard"):
             self._btn_view_dashboard.setChecked(True)
             self._btn_view_dashboard.setStyleSheet(
-                "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-                "QPushButton:hover { background: #6d28d9; }"
+                "QPushButton { background: #0284c7; color: #ffffff; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #00f0ff; }"
+                "QPushButton:hover { background: #0369a1; }"
             )
         if hasattr(self, "_btn_view_tasks"):
             self._btn_view_tasks.setChecked(False)
             self._btn_view_tasks.setStyleSheet(
-                "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
-                "QPushButton:hover { background: #45475a; }"
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
+            )
+        if hasattr(self, "_btn_view_missions"):
+            self._btn_view_missions.setChecked(False)
+            self._btn_view_missions.setStyleSheet(
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #ffd166; }"
             )
         if hasattr(self, "_dashboard_view"):
             self._dashboard_view.refresh_data()
         self.statusBar().showMessage("📊 Mostrando Dashboard estadístico", 3000)
 
+    def _show_missions_view(self) -> None:
+        if hasattr(self, "_stack"):
+            self._stack.setCurrentIndex(2)
+        if hasattr(self, "_btn_view_missions"):
+            self._btn_view_missions.setChecked(True)
+            self._btn_view_missions.setStyleSheet(
+                "QPushButton { background: #d97706; color: #090b10; border-radius: 6px; padding: 6px 14px; font-weight: 800; border: 1px solid #ffd166; }"
+                "QPushButton:hover { background: #f59e0b; }"
+            )
+        if hasattr(self, "_btn_view_tasks"):
+            self._btn_view_tasks.setChecked(False)
+            self._btn_view_tasks.setStyleSheet(
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
+            )
+        if hasattr(self, "_btn_view_dashboard"):
+            self._btn_view_dashboard.setChecked(False)
+            self._btn_view_dashboard.setStyleSheet(
+                "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                "QPushButton:hover { background: #1e283d; color: #00f0ff; }"
+            )
+        if hasattr(self, "_gamification_view"):
+            self._gamification_view.refresh_data()
+        self._refresh_gamification_hud()
+        self.statusBar().showMessage("⚔️ Centro de Misiones & Progresión de Rango abierto", 3000)
+
+    def _refresh_gamification_hud(self) -> None:
+        """Update toolbar mini Commander HUD with latest level and XP."""
+        if not hasattr(self, "_hud_lvl_badge"):
+            return
+        profile = self._db.get_gamification_profile()
+        rank = profile["rank"]
+        self._hud_lvl_badge.setText(f"{rank['icon']} L{profile['level']}")
+        self._hud_rank_lbl.setText(rank["title"])
+        self._hud_xp_bar.setValue(int(profile["xp_progress_pct"]))
+        tooltip = (
+            f"Comandante: {rank['title']} (Nivel {profile['level']})\n"
+            f"XP: {profile['xp']} / {profile['xp_needed']} ({profile['xp_progress_pct']}%)\n"
+            f"Racha: {profile['streak_days']} días\n"
+            f"Haz clic para abrir el Centro de Misiones"
+        )
+        self._hud_frame.setToolTip(tooltip)
+
+        unclaimed = profile.get("unclaimed_quests", 0)
+        if hasattr(self, "_btn_view_missions"):
+            if self._stack.currentIndex() != 2:
+                if unclaimed > 0:
+                    self._btn_view_missions.setText(f"⚔️ Misiones ({unclaimed})")
+                    self._btn_view_missions.setStyleSheet(
+                        "QPushButton { background: #261a08; color: #ffd166; border-radius: 6px; padding: 6px 14px; font-weight: 700; border: 1px solid #d97706; }"
+                        "QPushButton:hover { background: #3b2508; }"
+                    )
+                else:
+                    self._btn_view_missions.setText("⚔️ Misiones")
+                    self._btn_view_missions.setStyleSheet(
+                        "QPushButton { background: #141b29; color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-weight: 600; border: 1px solid #1f2d42; }"
+                        "QPushButton:hover { background: #1e283d; color: #ffd166; }"
+                    )
+
     def _on_dashboard_reset(self) -> None:
         self._refresh_tasks()
+        self._refresh_gamification_hud()
+        if hasattr(self, "_gamification_view"):
+            self._gamification_view.refresh_data()
         self.statusBar().showMessage("🔄 Tareas y estadísticas reiniciadas", 4000)
 
 
@@ -1016,8 +1198,24 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int)
     def _on_task_completed(self, task_id: int) -> None:
+        task = self._db.get_task(task_id)
+        prio = task.get("priority", 2) if task else 2
         self._db.complete_task(task_id)
+        res = self._db.record_action(
+            "task_completed",
+            {"priority": prio, "task_id": task_id, "title": task.get("title", "") if task else ""}
+        )
         self._refresh_tasks()
+        self._refresh_gamification_hud()
+        if hasattr(self, "_gamification_view"):
+            self._gamification_view.refresh_data()
+
+        if res.get("leveled_up"):
+            dlg = LevelUpDialog(res["new_level"], res["rank"]["title"], res["rank"]["icon"], self)
+            dlg.exec()
+        elif res.get("newly_completed_quests"):
+            q_titles = ", ".join(q["title"] for q in res["newly_completed_quests"])
+            self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}! Reclama tu XP en [⚔️ Misiones]", 6000)
 
     @pyqtSlot(int)
     def _on_task_uncompleted(self, task_id: int) -> None:
@@ -1056,6 +1254,18 @@ class MainWindow(QMainWindow):
             task = self._db.get_task(row["task_id"])
             if task and row["task_id"] in self._task_widgets:
                 self._task_widgets[row["task_id"]].update_progress(task["progress"])
+
+        if completed:
+            res = self._db.record_action("subtask_completed")
+            self._refresh_gamification_hud()
+            if hasattr(self, "_gamification_view"):
+                self._gamification_view.refresh_data()
+            if res.get("leveled_up"):
+                dlg = LevelUpDialog(res["new_level"], res["rank"]["title"], res["rank"]["icon"], self)
+                dlg.exec()
+            elif res.get("newly_completed_quests"):
+                q_titles = ", ".join(q["title"] for q in res["newly_completed_quests"])
+                self.statusBar().showMessage(f"🎯 ¡Misión cumplida: {q_titles}!", 6000)
 
     @pyqtSlot(int)
     def _on_add_subtask(self, task_id: int) -> None:

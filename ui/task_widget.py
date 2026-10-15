@@ -35,11 +35,12 @@ from PyQt6.QtWidgets import (
 # Priority colours
 # ---------------------------------------------------------------------------
 PRIORITY_COLORS = {
-    1: "#6b7280",  # low  – grey
-    2: "#d97706",  # mid  – amber
-    3: "#dc2626",  # high – red
+    1: "#38bdf8",  # low  – shield / mana cyan
+    2: "#f59e0b",  # mid  – exalted amber gold
+    3: "#ef4444",  # high – tactical crimson red
 }
 PRIORITY_LABELS = {1: "Baja", 2: "Media", 3: "Alta"}
+PRIORITY_XP = {1: 30, 2: 60, 3: 100}
 
 
 class CategoryBadge(QLabel):
@@ -175,12 +176,15 @@ class TaskWidget(QFrame):
         self.setObjectName("TaskCard")
         self.setStyleSheet(
             "#TaskCard {"
-            "  background: #313244;"
-            "  border-radius: 10px;"
-            "  border: 1px solid #45475a;"
+            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #111624, stop:1 #0c0f18);"
+            "  border-radius: 8px;"
+            "  border: 1px solid #1f2d42;"
             "  margin: 3px 0;"
             "}"
-            "#TaskCard:hover { border: 1px solid #7c3aed; }"
+            "#TaskCard:hover {"
+            "  border: 1px solid #00f0ff;"
+            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #161e30, stop:1 #101522);"
+            "}"
         )
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -200,8 +204,8 @@ class TaskWidget(QFrame):
         self._num_badge = QLabel()
         self._num_badge.setFixedHeight(22)
         self._num_badge.setStyleSheet(
-            "background-color: #181825; color: #89b4fa; font-weight: 700; "
-            "border: 1px solid #45475a; border-radius: 6px; padding: 2px 7px; "
+            "background-color: #0b1019; color: #00f0ff; font-weight: 800; "
+            "border: 1px solid #00b4d8; border-radius: 4px; padding: 1px 7px; "
             "font-size: 11px;"
         )
         if self._index_number is not None:
@@ -212,7 +216,7 @@ class TaskWidget(QFrame):
         top_row.addWidget(self._num_badge)
 
         self._title_label = QLabel()
-        self._title_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #cdd6f4;")
+        self._title_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #e2e8f0;")
         self._title_label.setWordWrap(True)
         top_row.addWidget(self._title_label, 1)
 
@@ -222,16 +226,15 @@ class TaskWidget(QFrame):
         self._expand_btn = QPushButton("▸")
         self._expand_btn.setFixedSize(22, 22)
         self._expand_btn.setStyleSheet(
-            "QPushButton { background: transparent; color: #6c7086; border: none; font-size: 12px; }"
-            "QPushButton:hover { color: #cdd6f4; }"
+            "QPushButton { background: transparent; color: #64748b; border: none; font-size: 12px; }"
+            "QPushButton:hover { color: #00f0ff; }"
         )
         self._expand_btn.clicked.connect(self._toggle_expand)
         top_row.addWidget(self._expand_btn)
 
         root.addLayout(top_row)
 
-
-        # --- Middle row: badge + due date ---
+        # --- Middle row: badge + due date + XP badge ---
         mid_row = QHBoxLayout()
         mid_row.setContentsMargins(28, 0, 0, 0)
         mid_row.setSpacing(8)
@@ -239,8 +242,15 @@ class TaskWidget(QFrame):
         self._badge = CategoryBadge("", "#7c3aed")
         mid_row.addWidget(self._badge)
 
+        self._xp_badge = QLabel("+60 XP")
+        self._xp_badge.setStyleSheet(
+            "background: #1c1508; color: #ffd166; font-size: 10px; font-weight: 700; "
+            "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px;"
+        )
+        mid_row.addWidget(self._xp_badge)
+
         self._due_label = QLabel()
-        self._due_label.setStyleSheet("font-size: 11px; color: #6c7086;")
+        self._due_label.setStyleSheet("font-size: 11px; color: #64748b;")
         mid_row.addWidget(self._due_label)
         mid_row.addStretch()
 
@@ -249,11 +259,11 @@ class TaskWidget(QFrame):
         # --- Progress bar ---
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
-        self._progress_bar.setFixedHeight(6)
+        self._progress_bar.setFixedHeight(5)
         self._progress_bar.setTextVisible(False)
         self._progress_bar.setStyleSheet(
-            "QProgressBar { background: #45475a; border-radius: 3px; }"
-            "QProgressBar::chunk { background: #7c3aed; border-radius: 3px; }"
+            "QProgressBar { background: #141b29; border: 1px solid #1f2d42; border-radius: 2px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00f0ff); border-radius: 2px; }"
         )
         root.addWidget(self._progress_bar)
 
@@ -303,11 +313,36 @@ class TaskWidget(QFrame):
         else:
             self._due_label.setText("")
 
+        # XP badge
+        prio = task.get("priority", 2)
+        xp_val = PRIORITY_XP.get(prio, 60)
+        self._xp_badge.setText(f"⭐ +{xp_val} XP")
+        if prio == 3:
+            self._xp_badge.setStyleSheet(
+                "background: #2a1114; color: #ff6b6b; font-size: 10px; font-weight: 800; "
+                "border: 1px solid #ef4444; border-radius: 4px; padding: 1px 6px;"
+            )
+        elif prio == 2:
+            self._xp_badge.setStyleSheet(
+                "background: #1c1508; color: #ffd166; font-size: 10px; font-weight: 700; "
+                "border: 1px solid #d97706; border-radius: 4px; padding: 1px 6px;"
+            )
+        else:
+            self._xp_badge.setStyleSheet(
+                "background: #0b1a29; color: #38bdf8; font-size: 10px; font-weight: 700; "
+                "border: 1px solid #0284c7; border-radius: 4px; padding: 1px 6px;"
+            )
+
         # Completed appearance
         if task.get("completed"):
             self._title_label.setStyleSheet(
-                "font-size: 14px; font-weight: 600; color: #6c7086; text-decoration: line-through;"
+                "font-size: 14px; font-weight: 600; color: #64748b; text-decoration: line-through;"
             )
+            self._xp_badge.setStyleSheet(
+                "background: #0f172a; color: #64748b; font-size: 10px; font-weight: 600; "
+                "border: 1px solid #334155; border-radius: 4px; padding: 1px 6px;"
+            )
+            self._xp_badge.setText(f"✔ +{xp_val} XP")
 
         self._rebuild_subtasks()
 
