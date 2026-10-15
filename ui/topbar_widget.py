@@ -131,6 +131,23 @@ class TopBarWidget(QWidget):
         self._settings_btn.clicked.connect(self.settings_clicked.emit)
         layout.addWidget(self._settings_btn)
 
+    def _setup_shortcut(self) -> None:
+        shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        shortcut.activated.connect(self._focus_search)
+
+    def focus_search(self) -> None:
+        self._focus_search()
+
+    def _focus_search(self) -> None:
+        self._search_edit.setFocus()
+        self._search_edit.selectAll()
+
+    def set_title(self, title: str) -> None:
+        self._title_lbl.setText(title)
+
+    def set_subtitle(self, subtitle: str) -> None:
+        self._subtitle_lbl.setText(subtitle)
+
     def retranslate_ui(self) -> None:
         self._search_edit.setPlaceholderText(tr("search_placeholder"))
         self._theme_btn.setToolTip(tr("theme_tooltip"))
