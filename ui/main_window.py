@@ -316,6 +316,11 @@ class TaskEditDialog(QDialog):
         form.addRow(self._due_cb)
         form.addRow("Vencimiento:", self._due_edit)
 
+        # Dynamic category auto-deduction as the user types
+        self._cat_user_modified = False
+        self._cat_combo.activated.connect(lambda: setattr(self, "_cat_user_modified", True))
+        self._title_edit.textChanged.connect(self._on_title_changed)
+
         layout.addLayout(form)
 
         # --- Subtasks ---
@@ -389,6 +394,20 @@ class TaskEditDialog(QDialog):
         row.addWidget(edit)
         self._new_subtask_edits.append(edit)
         self._subtask_container.addLayout(row)
+
+    def _on_title_changed(self, text: str) -> None:
+        if self._task_id is not None or self._cat_user_modified:
+            return
+        from core.categorizer import deduce_category_name
+        cat_name = deduce_category_name(text)
+        if cat_name:
+            for i in range(self._cat_combo.count()):
+                if self._cat_combo.itemText(i).lower() == cat_name.lower():
+                    self._cat_combo.setCurrentIndex(i)
+                    return
+            if cat_name.lower() == "hogar":
+                self._cat_combo.addItem("Hogar", None)
+                self._cat_combo.setCurrentIndex(self._cat_combo.count() - 1)
 
     # ------------------------------------------------------------------
     # Save
@@ -858,11 +877,14 @@ class MainWindow(QMainWindow):
         if cmd_type == "add_task":
             if title:
                 priority = params.get("priority", 2)
-                self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
+                task_id = self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
                 self._refresh_tasks()
                 self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                self._voice_status_lbl.setText(f'🎙 Tarea añadida [{prio_name}]: "{title}"')
+                task = self._db.get_task(task_id)
+                cat_name = task.get("category_name") if task else None
+                cat_badge = f" [{cat_name}]" if cat_name else ""
+                self._voice_status_lbl.setText(f'🎙 Tarea añadida{cat_badge} [{prio_name}]: "{title}"')
         elif cmd_type == "complete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -933,11 +955,14 @@ class MainWindow(QMainWindow):
             if raw:
                 title = params.get("title", raw)
                 priority = params.get("priority", 2)
-                self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
+                task_id = self._db.add_task(title=title, priority=priority, category_id=self._active_category_id)
                 self._refresh_tasks()
                 self._refresh_categories_sidebar()
                 prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
-                self._voice_status_lbl.setText(f'🎙 Tarea creada [{prio_name}]: "{title}"')
+                task = self._db.get_task(task_id)
+                cat_name = task.get("category_name") if task else None
+                cat_badge = f" [{cat_name}]" if cat_name else ""
+                self._voice_status_lbl.setText(f'🎙 Tarea creada{cat_badge} [{prio_name}]: "{title}"')
 
     # ------------------------------------------------------------------
     # View Switching (Tasks vs Dashboard vs Missions)
@@ -1034,11 +1059,14 @@ class MainWindow(QMainWindow):
     def _on_quick_add_task(self, text: str) -> None:
         if not text:
             return
-        self._db.add_task(title=text, priority=2, category_id=self._active_category_id)
+        task_id = self._db.add_task(title=text, priority=2, category_id=self._active_category_id)
         self._refresh_tasks()
         self._refresh_categories_sidebar()
         self._refresh_gamification_hud()
-        self._voice_status_lbl.setText(f'Tarea agregada: "{text}"')
+        task = self._db.get_task(task_id)
+        cat_name = task.get("category_name") if task else None
+        cat_badge = f" [{cat_name}]" if cat_name else ""
+        self._voice_status_lbl.setText(f'Tarea agregada{cat_badge}: "{text}"')
 
     def _on_filter_bar_changed(self, filter_mode: str) -> None:
         self._refresh_tasks()

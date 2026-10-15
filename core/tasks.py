@@ -12,6 +12,8 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+from core.categorizer import deduce_category_name
+
 
 # ---------------------------------------------------------------------------
 # Database path
@@ -293,6 +295,33 @@ class DatabaseManager:
         row = cur.fetchone()
         return dict(row) if row else None
 
+    def deduce_or_create_category(self, text: str) -> Optional[int]:
+        """
+        Deduce the category from text (title + description).
+        If deduced as 'Hogar' (or any standard category) and it doesn't exist,
+        automatically creates it and returns its id.
+        """
+        cat_name = deduce_category_name(text)
+        if not cat_name:
+            return None
+
+        cur = self._cursor()
+        cur.execute("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)", (cat_name,))
+        row = cur.fetchone()
+        if row:
+            return row["id"]
+
+        # Category doesn't exist yet in the database -> create it automatically
+        color_map = {
+            "Trabajo": "#F59E0B",
+            "Hogar": "#FB7185",
+            "Salud": "#34D399",
+            "Estudio": "#60A5FA",
+            "Personal": "#C084FC",
+        }
+        color = color_map.get(cat_name, "#FB7185")
+        return self.add_category(cat_name, color)
+
     def add_task(
         self,
         title: str,
@@ -301,7 +330,13 @@ class DatabaseManager:
         due_date: Optional[str] = None,
         priority: int = 2,
     ) -> int:
-        """Insert a new task and return its id."""
+        """
+        Insert a new task and return its id.
+        If category_id is None, automatically deduces it from title and description.
+        """
+        if category_id is None:
+            category_id = self.deduce_or_create_category(f"{title} {description}".strip())
+
         now = datetime.now().isoformat(sep=" ", timespec="seconds")
         with self._conn:
             cur = self._conn.execute(
