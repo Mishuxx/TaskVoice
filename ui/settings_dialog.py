@@ -282,9 +282,10 @@ class SettingsDialog(QDialog):
         tw_guide = QLabel(
             "<b>Configuración de Twilio (WhatsApp & SMS):</b><br>"
             "1. Obtén tu <b>Account SID</b> y <b>Auth Token</b> desde tu consola en <b>console.twilio.com</b>.<br>"
-            "2. <b>WhatsApp Sandbox:</b> Ve a <i>Develop > Messaging > Try SMS / Try WhatsApp</i>, usa el número asignado (ej: <code>+14155238886</code>) y envía el mensaje de unión (ej: <i>join word-here</i>) desde tu WhatsApp.<br>"
-            "3. <b>SMS:</b> Selecciona el canal SMS e ingresa tu número remitente de Twilio.<br>"
-            "4. Ingresa tu número de teléfono con código de país (ej: <code>+54911...</code> o <code>+34...</code>)."
+            "2. <b>WhatsApp Sandbox:</b> Ve a <i>Develop > Messaging > Try SMS / Try WhatsApp</i>, usa el número asignado (ej: <code>+14155238886</code>) y envía el mensaje de unión (ej: <i>join palabra</i>) desde tu WhatsApp.<br>"
+            "3. <b>Plantillas WhatsApp (Trial / Fuera de ventana 24h):</b> Si WhatsApp rechaza texto libre, ingresa el <b>Content SID</b> preaprobado de Twilio (ej: <code>HXb5b62575e6e4ff6129ad7c8efe1f983e</code> de <i>Content Template Builder</i>).<br>"
+            "4. <b>SMS:</b> Selecciona el canal SMS e ingresa tu número remitente de Twilio.<br>"
+            "5. Ingresa tu número de teléfono con código de país (ej: <code>+54911...</code> o <code>+34...</code>)."
         )
         tw_guide.setWordWrap(True)
         tw_guide.setStyleSheet(
@@ -315,6 +316,10 @@ class SettingsDialog(QDialog):
         self._tw_to_edit = QLineEdit()
         self._tw_to_edit.setPlaceholderText("Ej: +34612345678 o +54911...")
         tw_form.addRow("Para (Tu Teléfono):", self._tw_to_edit)
+
+        self._tw_contentsid_edit = QLineEdit()
+        self._tw_contentsid_edit.setPlaceholderText("Ej: HXb5b62575e6e4ff6129ad7c8efe1f983e (opcional / plantillas)")
+        tw_form.addRow("Content SID (Plantilla):", self._tw_contentsid_edit)
 
         tw_layout.addLayout(tw_form)
 
@@ -402,6 +407,7 @@ class SettingsDialog(QDialog):
         from_num = self._tw_from_edit.text().strip()
         to_num = self._tw_to_edit.text().strip()
         channel = self._tw_channel_combo.currentText().lower()
+        contentsid = self._tw_contentsid_edit.text().strip() or None
 
         if not sid or not token or not from_num or not to_num:
             self._tw_status_lbl.setText("⚠ Completa Account SID, Auth Token, From y To de Twilio.")
@@ -410,10 +416,11 @@ class SettingsDialog(QDialog):
 
         self._tw_test_btn.setEnabled(False)
         self._tw_test_btn.setText("Enviando...")
-        self._tw_status_lbl.setText(f"Conectando con Twilio ({channel.upper()})...")
+        template_tag = " [Plantilla HX]" if contentsid else ""
+        self._tw_status_lbl.setText(f"Conectando con Twilio ({channel.upper()}{template_tag})...")
         self._tw_status_lbl.setStyleSheet("color: #9AA4B5; font-size: 11px;")
 
-        self._active_worker = BotTestWorker(test_twilio, sid, token, from_num, to_num, channel)
+        self._active_worker = BotTestWorker(test_twilio, sid, token, from_num, to_num, channel, contentsid)
         self._active_worker.finished_result.connect(self._on_twilio_test_result)
         self._active_worker.start()
 
@@ -608,6 +615,7 @@ class SettingsDialog(QDialog):
         self._tw_token_edit.setText(s.get("twilio_auth_token", ""))
         self._tw_from_edit.setText(s.get("twilio_from_number", "+14155238886"))
         self._tw_to_edit.setText(s.get("twilio_to_number", ""))
+        self._tw_contentsid_edit.setText(s.get("twilio_content_sid", ""))
 
         # Voice
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
@@ -635,6 +643,7 @@ class SettingsDialog(QDialog):
             "twilio_auth_token":     self._tw_token_edit.text().strip(),
             "twilio_from_number":    self._tw_from_edit.text().strip(),
             "twilio_to_number":      self._tw_to_edit.text().strip(),
+            "twilio_content_sid":    self._tw_contentsid_edit.text().strip(),
             "voice_enabled":         self._voice_enabled_cb.isChecked(),
             "voice_engine":          "google" if self._engine_combo.currentIndex() == 0 else "vosk",
             "vosk_model_path":       self._vosk_path_edit.text().strip(),

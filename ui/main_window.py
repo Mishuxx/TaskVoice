@@ -99,6 +99,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "twilio_from_number": "+14155238886",
     "twilio_to_number": "",
     "twilio_channel": "whatsapp",
+    "twilio_content_sid": "",
     "whatsapp_enabled": False,
     "whatsapp_phone": "",
     "whatsapp_apikey": "",

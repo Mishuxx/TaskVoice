@@ -167,10 +167,13 @@ def send_twilio_message(
     to_number: str,
     body: str,
     channel: str = "whatsapp",
+    content_sid: Optional[str] = None,
+    content_variables: Optional[Union[Dict[str, Any], str]] = None,
     timeout: int = 15,
 ) -> Tuple[bool, str]:
     """
     Send a message via Twilio REST API for WhatsApp or SMS.
+    Supports either standard text Body or pre-approved Content Templates (ContentSid).
     Uses HTTP Basic Authentication with zero external dependencies.
     """
     sid = account_sid.strip()
@@ -188,12 +191,27 @@ def send_twilio_message(
     from_val = format_twilio_phone(from_number, channel)
     to_val = format_twilio_phone(to_number, channel)
 
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-    payload = urllib.parse.urlencode({
+    post_fields: Dict[str, str] = {
         "From": from_val,
         "To": to_val,
-        "Body": body,
-    }).encode("utf-8")
+    }
+
+    # If a pre-approved Content Template is specified (required for WhatsApp outside 24h / trials)
+    csid = (content_sid or "").strip()
+    if csid:
+        post_fields["ContentSid"] = csid
+        if content_variables:
+            if isinstance(content_variables, str):
+                post_fields["ContentVariables"] = content_variables
+            else:
+                post_fields["ContentVariables"] = json.dumps(content_variables)
+        else:
+            post_fields["ContentVariables"] = json.dumps({"1": body[:60]})
+    else:
+        post_fields["Body"] = body
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+    payload = urllib.parse.urlencode(post_fields).encode("utf-8")
 
     auth_str = f"{sid}:{token}"
     b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("ascii")
@@ -215,7 +233,8 @@ def send_twilio_message(
             res_json = json.loads(resp_body)
             msg_sid = res_json.get("sid", "")
             status = res_json.get("status", "queued")
-            return True, f"Mensaje enviado con éxito vía Twilio ({channel.upper()}). Estado: {status} (SID: {msg_sid[:10]}...)"
+            template_info = " (Plantilla HX)" if csid else ""
+            return True, f"Mensaje enviado con éxito vía Twilio ({channel.upper()}{template_info}). Estado: {status} (SID: {msg_sid[:10]}...)"
     except urllib.error.HTTPError as err:
         err_body = err.read().decode("utf-8", errors="replace")
         logger.warning("Twilio HTTP error %d: %s", err.code, err_body)
@@ -242,14 +261,19 @@ def test_twilio(
     from_number: str,
     to_number: str,
     channel: str = "whatsapp",
+    content_sid: Optional[str] = None,
 ) -> Tuple[bool, str]:
-    """Send a friendly test message via Twilio (WhatsApp or SMS) to verify credentials."""
+    """Send a test message via Twilio (WhatsApp or SMS) with optional Content Template support."""
     channel_name = "WhatsApp" if channel.lower() == "whatsapp" else "SMS"
     msg = (
         "🤖 *¡Conexión exitosa con Taskmaster!*\n\n"
         f"Tus notificaciones y recordatorios de tareas llegarán por Twilio ({channel_name}). 🎯✨"
     )
-    return send_twilio_message(account_sid, auth_token, from_number, to_number, msg, channel=channel)
+    c_vars = {"1": "123456"} if content_sid else None
+    return send_twilio_message(
+        account_sid, auth_token, from_number, to_number, msg,
+        channel=channel, content_sid=content_sid, content_variables=c_vars,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -337,9 +361,14 @@ def send_bot_notification_async(
             from_num = settings.get("twilio_from_number", "")
             to_num = settings.get("twilio_to_number", "")
             channel = settings.get("twilio_channel", "whatsapp")
+            content_sid = settings.get("twilio_content_sid", "")
             if sid and token and from_num and to_num:
                 tw_text = f"*{title}*\n\n{message}"
-                ok, err = send_twilio_message(sid, token, from_num, to_num, tw_text, channel=channel)
+                c_vars = {"1": f"{title}: {message}"[:60]} if content_sid else None
+                ok, err = send_twilio_message(
+                    sid, token, from_num, to_num, tw_text,
+                    channel=channel, content_sid=content_sid, content_variables=c_vars,
+                )
                 if not ok:
                     logger.warning("Background Twilio notification failed: %s", err)
 
