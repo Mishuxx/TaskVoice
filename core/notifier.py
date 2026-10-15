@@ -96,6 +96,7 @@ class NotificationManager:
         settings: Optional[Dict[str, Any]] = None,
     ):
         self._db = db
+        self._settings = dict(settings or {})
         self.reminder_minutes = reminder_minutes
         self.daily_summary_hour = daily_summary_hour
         self.daily_summary_minute = daily_summary_minute
