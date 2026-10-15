@@ -1653,6 +1653,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_gamification_view"):
             self._gamification_view.refresh_data()
 
+        # Reschedule reminder for next instance if task was recurring
+        updated_task = self._db.get_task(task_id)
+        if updated_task and updated_task.get("is_recurring"):
+            self._notifier.cancel_reminder(task_id)
+            self._notifier.schedule_reminder(updated_task)
+
         if res.get("leveled_up"):
             dlg = LevelUpDialog(res["new_level"], res["rank"]["title"], res["rank"]["icon"], self)
             dlg.exec()
