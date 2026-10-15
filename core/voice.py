@@ -81,13 +81,17 @@ COMMAND_PATTERNS = [
     (re.compile(r"^(?:la\s+)?tarea\s+(.+?)\s+(?:como\s+)?(?:completada|hecha|terminada|finalizada)$", re.IGNORECASE), "complete_task"),
     # Eliminar tarea (por número o título)
     (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "delete_task"),
-    # Mostrar progreso
-    (re.compile(r"^(?:mostrar|ver|cual\s+es\s+el)?\s*progreso", re.IGNORECASE), "show_progress"),
+    # Mostrar Dashboard / Estadísticas
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?)?\s*(?:el\s+)?(?:dashboard|panel|estad[ií]sticas|m[eé]tricas|gr[aá]ficos?)$", re.IGNORECASE), "show_dashboard"),
+    (re.compile(r"^(?:mostrar|ver|cual\s+es\s+el)?\s*progreso", re.IGNORECASE), "show_dashboard"),
+    # Mostrar Tareas / Lista
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+la)?)\s*(?:las?\s+)?(?:tareas?|lista)$", re.IGNORECASE), "show_tasks"),
     # Añadir / Crear tarea con prefijo
     (re.compile(r"^(?:añadir|agregar|crear|nueva|poner|anotar|recordar)\s+(?:la\s+|una\s+)?tarea\s+(.+)", re.IGNORECASE), "add_task"),
     (re.compile(r"^(?:tarea|nueva\s+tarea)\s*[:\-]?\s*(.+)", re.IGNORECASE), "add_task"),
     (re.compile(r"^(?:recordar|anotar)\s+(.+)", re.IGNORECASE), "add_task"),
 ]
+
 
 
 def parse_command(text: str) -> Optional[Dict[str, Any]]:

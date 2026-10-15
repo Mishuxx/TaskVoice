@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QFrame, QDialog, QFormLayout, QTextEdit,
     QDateTimeEdit, QSpinBox, QCheckBox, QDialogButtonBox,
     QMessageBox, QSystemTrayIcon, QMenu, QApplication,
-    QSizePolicy,
+    QSizePolicy, QStackedWidget,
 )
 from PyQt6.QtCore import QDateTime
 
@@ -46,6 +46,8 @@ from core.voice import VoiceManager, extract_task_number
 from core.notifier import NotificationManager
 from ui.task_widget import TaskWidget
 from ui.settings_dialog import SettingsDialog
+from ui.dashboard_widget import DashboardWidget
+
 
 
 logger = logging.getLogger(__name__)
@@ -550,7 +552,14 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right_panel)
         splitter.setSizes([200, 700])
 
-        root_layout.addWidget(splitter)
+        # Stacked view: 0 = Tasks list, 1 = Graphical Dashboard
+        self._stack = QStackedWidget()
+        self._stack.addWidget(splitter)
+        self._dashboard_view = DashboardWidget(self._db, parent=self)
+        self._stack.addWidget(self._dashboard_view)
+
+        root_layout.addWidget(self._stack)
+
 
         # Status bar
         self._status_bar = QStatusBar()
@@ -594,6 +603,30 @@ class MainWindow(QMainWindow):
         tb.addWidget(self._voice_btn)
 
         tb.addSeparator()
+
+        # View Switcher (Lista vs Dashboard)
+        self._btn_view_tasks = QPushButton("📋 Tareas")
+        self._btn_view_tasks.setCheckable(True)
+        self._btn_view_tasks.setChecked(True)
+        self._btn_view_tasks.setStyleSheet(
+            "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #6d28d9; }"
+        )
+        self._btn_view_tasks.clicked.connect(self._show_tasks_view)
+        tb.addWidget(self._btn_view_tasks)
+
+        self._btn_view_dashboard = QPushButton("📊 Dashboard")
+        self._btn_view_dashboard.setCheckable(True)
+        self._btn_view_dashboard.setChecked(False)
+        self._btn_view_dashboard.setStyleSheet(
+            "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #45475a; }"
+        )
+        self._btn_view_dashboard.clicked.connect(self._show_dashboard_view)
+        tb.addWidget(self._btn_view_dashboard)
+
+        tb.addSeparator()
+
 
         # Search bar
         self._search_edit = QLineEdit()
@@ -787,12 +820,12 @@ class MainWindow(QMainWindow):
                 else:
                     self.statusBar().showMessage(f'⚠ No se encontró la tarea: "{title}"', 4000)
 
-        elif cmd_type == "show_progress":
-            stats = self._db.get_stats()
-            self.statusBar().showMessage(
-                f"Activas: {stats['active']} | Completadas hoy: {stats['completed_today']} | Vencidas: {stats['overdue']}",
-                8000,
-            )
+        elif cmd_type in ("show_progress", "show_dashboard"):
+            self._show_dashboard_view()
+            self.statusBar().showMessage("📊 Mostrando Dashboard gráfico", 4000)
+        elif cmd_type == "show_tasks":
+            self._show_tasks_view()
+            self.statusBar().showMessage("📋 Mostrando lista de tareas", 4000)
         else:
             # ── Fallback: cualquier texto que no sea un comando conocido
             # se trata directamente como título de nueva tarea ──────────
@@ -801,6 +834,47 @@ class MainWindow(QMainWindow):
                 self._db.add_task(title=raw)
                 self._refresh_tasks()
                 self.statusBar().showMessage(f'🎙 Tarea creada: "{raw}"', 5000)
+
+    # ------------------------------------------------------------------
+    # View Switching (Tasks List vs Dashboard)
+    # ------------------------------------------------------------------
+
+    def _show_tasks_view(self) -> None:
+        if hasattr(self, "_stack"):
+            self._stack.setCurrentIndex(0)
+        if hasattr(self, "_btn_view_tasks"):
+            self._btn_view_tasks.setChecked(True)
+            self._btn_view_tasks.setStyleSheet(
+                "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+                "QPushButton:hover { background: #6d28d9; }"
+            )
+        if hasattr(self, "_btn_view_dashboard"):
+            self._btn_view_dashboard.setChecked(False)
+            self._btn_view_dashboard.setStyleSheet(
+                "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+                "QPushButton:hover { background: #45475a; }"
+            )
+        self._refresh_tasks()
+
+    def _show_dashboard_view(self) -> None:
+        if hasattr(self, "_stack"):
+            self._stack.setCurrentIndex(1)
+        if hasattr(self, "_btn_view_dashboard"):
+            self._btn_view_dashboard.setChecked(True)
+            self._btn_view_dashboard.setStyleSheet(
+                "QPushButton { background: #7c3aed; color: #ffffff; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+                "QPushButton:hover { background: #6d28d9; }"
+            )
+        if hasattr(self, "_btn_view_tasks"):
+            self._btn_view_tasks.setChecked(False)
+            self._btn_view_tasks.setStyleSheet(
+                "QPushButton { background: #313244; color: #cdd6f4; border-radius: 8px; padding: 6px 14px; font-weight: 600; }"
+                "QPushButton:hover { background: #45475a; }"
+            )
+        if hasattr(self, "_dashboard_view"):
+            self._dashboard_view.refresh_data()
+        self.statusBar().showMessage("📊 Mostrando Dashboard estadístico", 3000)
+
 
 
     # ------------------------------------------------------------------
@@ -895,6 +969,9 @@ class MainWindow(QMainWindow):
 
 
         self._refresh_status()
+        if hasattr(self, "_dashboard_view"):
+            self._dashboard_view.refresh_data()
+
 
     def _refresh_status(self) -> None:
         stats = self._db.get_stats()

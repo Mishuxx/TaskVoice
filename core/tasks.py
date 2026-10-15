@@ -474,7 +474,155 @@ class DatabaseManager:
             "overdue": overdue,
         }
 
+    def get_dashboard_data(self) -> Dict[str, Any]:
+        """
+        Return comprehensive statistical and analytical metrics for the visual dashboard.
+        """
+        from datetime import datetime, date, timedelta
+        cur = self._cursor()
+        now_str = datetime.now().isoformat(sep=" ", timespec="seconds")
+        today_str = date.today().isoformat()
+
+        # Summary KPIs
+        cur.execute("SELECT COUNT(*) FROM tasks")
+        total_tasks = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE completed=0")
+        active_tasks = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE completed=1")
+        completed_tasks = cur.fetchone()[0]
+
+        cur.execute(
+            "SELECT COUNT(*) FROM tasks WHERE completed=0 AND due_date IS NOT NULL AND due_date < ?",
+            (now_str,)
+        )
+        overdue_tasks = cur.fetchone()[0]
+
+        cur.execute(
+            "SELECT COUNT(*) FROM tasks WHERE completed=0 AND due_date IS NOT NULL AND DATE(due_date)=?",
+            (today_str,)
+        )
+        due_today_tasks = cur.fetchone()[0]
+
+        cur.execute(
+            "SELECT COUNT(*) FROM tasks WHERE completed=1 AND DATE(completed_at)=?",
+            (today_str,)
+        )
+        completed_today = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM subtasks")
+        subtasks_total = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM subtasks WHERE completed=1")
+        subtasks_completed = cur.fetchone()[0]
+
+        completion_rate = round((completed_tasks / total_tasks * 100), 1) if total_tasks > 0 else 0.0
+
+        # Categories distribution
+        cur.execute("""
+            SELECT c.id, c.name, c.color,
+                   COUNT(t.id) AS total,
+                   SUM(CASE WHEN t.completed = 1 THEN 1 ELSE 0 END) AS completed,
+                   SUM(CASE WHEN t.completed = 0 THEN 1 ELSE 0 END) AS active
+            FROM categories c
+            LEFT JOIN tasks t ON t.category_id = c.id
+            GROUP BY c.id, c.name, c.color
+            ORDER BY total DESC, c.name ASC
+        """)
+        categories = []
+        for r in cur.fetchall():
+            tot = r["total"]
+            done = r["completed"] or 0
+            act = r["active"] or 0
+            rate = round((done / tot * 100), 1) if tot > 0 else 0.0
+            categories.append({
+                "id": r["id"],
+                "name": r["name"],
+                "color": r["color"],
+                "total": tot,
+                "completed": done,
+                "active": act,
+                "rate": rate,
+            })
+
+        # Priority breakdown (1: Baja, 2: Media, 3: Alta)
+        cur.execute("""
+            SELECT priority,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed,
+                   SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END) AS active
+            FROM tasks
+            GROUP BY priority
+        """)
+        prio_map = {
+            1: {"priority": 1, "name": "Baja", "color": "#6b7280", "total": 0, "completed": 0, "active": 0},
+            2: {"priority": 2, "name": "Media", "color": "#d97706", "total": 0, "completed": 0, "active": 0},
+            3: {"priority": 3, "name": "Alta", "color": "#dc2626", "total": 0, "completed": 0, "active": 0},
+        }
+        for r in cur.fetchall():
+            p = r["priority"]
+            if p in prio_map:
+                prio_map[p]["total"] = r["total"]
+                prio_map[p]["completed"] = r["completed"] or 0
+                prio_map[p]["active"] = r["active"] or 0
+        priorities = [prio_map[1], prio_map[2], prio_map[3]]
+
+        # Last 7 days activity (productividad semanal)
+        days_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        weekly_activity = []
+        today = date.today()
+        for i in range(6, -1, -1):
+            day_dt = today - timedelta(days=i)
+            day_str = day_dt.isoformat()
+            day_label = days_es[day_dt.weekday()]
+
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks WHERE completed=1 AND DATE(completed_at)=?",
+                (day_str,)
+            )
+            count_tasks = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT COUNT(*) FROM task_history WHERE DATE(completed_at)=? OR DATE(archived_at)=?",
+                (day_str, day_str)
+            )
+            count_history = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks WHERE DATE(created_at)=?",
+                (day_str,)
+            )
+            count_created = cur.fetchone()[0]
+
+            weekly_activity.append({
+                "date": day_str,
+                "label": f"{day_label} {day_dt.day}",
+                "day_name": day_label,
+                "is_today": (i == 0),
+                "completed": count_tasks + count_history,
+                "created": count_created,
+            })
+
+        return {
+            "summary": {
+                "total": total_tasks,
+                "active": active_tasks,
+                "completed": completed_tasks,
+                "overdue": overdue_tasks,
+                "due_today": due_today_tasks,
+                "completed_today": completed_today,
+                "completion_rate": completion_rate,
+                "subtasks_total": subtasks_total,
+                "subtasks_completed": subtasks_completed,
+            },
+            "categories": categories,
+            "priorities": priorities,
+            "weekly_activity": weekly_activity,
+        }
+
     def get_tasks_due_soon(self, minutes: int = 30) -> List[Dict[str, Any]]:
+
         """Return incomplete tasks due within *minutes* from now."""
         from datetime import timedelta
         now = datetime.now()
