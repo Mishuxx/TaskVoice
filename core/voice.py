@@ -72,26 +72,64 @@ def extract_task_number(text: str) -> Optional[int]:
     return None
 
 
+def extract_priority(text: str) -> tuple[str, int]:
+    """
+    Detect priority from text (alta/3/urgente -> 3, media/2/normal -> 2, baja/1 -> 1)
+    and return (cleaned_title, priority_int).
+    """
+    prio = 2  # default Media
+    cleaned = text
+
+    # Alta (3)
+    p_alta = re.compile(
+        r'\b(?:con\s+)?(?:prioridad\s+(?:alta|3|m[aá]xima|urgente)|(?:alta|m[aá]xima|urgente)\s+prioridad|urgente)\b',
+        re.IGNORECASE,
+    )
+    # Baja (1)
+    p_baja = re.compile(
+        r'\b(?:con\s+)?(?:prioridad\s+(?:baja|1|menor)|(?:baja|menor)\s+prioridad|no\s+urgente)\b',
+        re.IGNORECASE,
+    )
+    # Media (2)
+    p_media = re.compile(
+        r'\b(?:con\s+)?(?:prioridad\s+(?:media|2|normal)|(?:media|normal)\s+prioridad)\b',
+        re.IGNORECASE,
+    )
+
+    if p_alta.search(cleaned):
+        prio = 3
+        cleaned = p_alta.sub('', cleaned)
+    elif p_baja.search(cleaned):
+        prio = 1
+        cleaned = p_baja.sub('', cleaned)
+    elif p_media.search(cleaned):
+        prio = 2
+        cleaned = p_media.sub('', cleaned)
+
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' :-')
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned, prio
+
+
 # ---------------------------------------------------------------------------
 # Command patterns (Spanish)
 # ---------------------------------------------------------------------------
 COMMAND_PATTERNS = [
+    # Mostrar Dashboard / Estadísticas (ej. "mostrar dash", "ver dashboard", "panel", "estadísticas", "progreso")
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?|entrar\s+al?)?\s*(?:el\s+)?(?:dashboard|dash|panel|estad[ií]sticas?|m[eé]tricas?|gr[aá]ficos?|progreso)[\.\!\?]?$", re.IGNORECASE), "show_dashboard"),
+    # Mostrar Tareas / Lista
+    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+la)?|volver\s+a(?:l|\s+la)?|volver)?\s*(?:las?\s+)?(?:tareas?|lista)[\.\!\?]?$", re.IGNORECASE), "show_tasks"),
     # Completar tarea (por número o título)
     (re.compile(r"^(?:completar|terminar|finalizar|marcar(?:\s+como\s+(?:hecha|completada))?)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "complete_task"),
     (re.compile(r"^(?:la\s+)?tarea\s+(.+?)\s+(?:como\s+)?(?:completada|hecha|terminada|finalizada)$", re.IGNORECASE), "complete_task"),
     # Eliminar tarea (por número o título)
     (re.compile(r"^(?:eliminar|borrar|quitar)\s+(?:la\s+)?(?:tarea\s+)?(?:n[uú]mero\s+|#\s*)?(.+)", re.IGNORECASE), "delete_task"),
-    # Mostrar Dashboard / Estadísticas
-    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+al?)?\s*(?:el\s+)?(?:dashboard|panel|estad[ií]sticas|m[eé]tricas|gr[aá]ficos?)$", re.IGNORECASE), "show_dashboard"),
-    (re.compile(r"^(?:mostrar|ver|cual\s+es\s+el)?\s*progreso", re.IGNORECASE), "show_dashboard"),
-    # Mostrar Tareas / Lista
-    (re.compile(r"^(?:mostrar|ver|abrir|ir\s+a(?:l|\s+la)?)\s*(?:las?\s+)?(?:tareas?|lista)$", re.IGNORECASE), "show_tasks"),
-    # Añadir / Crear tarea con prefijo
+    # Añadir / Crear tarea con prefijo explícito
     (re.compile(r"^(?:añadir|agregar|crear|nueva|poner|anotar|recordar)\s+(?:la\s+|una\s+)?tarea\s+(.+)", re.IGNORECASE), "add_task"),
     (re.compile(r"^(?:tarea|nueva\s+tarea)\s*[:\-]?\s*(.+)", re.IGNORECASE), "add_task"),
     (re.compile(r"^(?:recordar|anotar)\s+(.+)", re.IGNORECASE), "add_task"),
 ]
-
 
 
 def parse_command(text: str) -> Optional[Dict[str, Any]]:
@@ -111,6 +149,13 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
         m = pattern.search(text)
         if m:
             params: Dict[str, Any] = {"raw": text}
+            if cmd_type == "add_task":
+                title_val = m.group(1).strip() if (m.lastindex and m.lastindex >= 1) else text
+                clean_title, prio = extract_priority(title_val)
+                params["title"] = clean_title
+                params["priority"] = prio
+                return {"type": cmd_type, "params": params}
+
             if m.lastindex and m.lastindex >= 1:
                 title_val = m.group(1).strip()
                 params["title"] = title_val
@@ -120,10 +165,11 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
                     params["number"] = num
             return {"type": cmd_type, "params": params}
 
-    # Si el usuario simplemente dijo algo (ej. "comprar leche", "llamar al dentista"),
-    # se convierte automáticamente en una nueva tarea:
-    title = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
-    return {"type": "add_task", "params": {"title": title, "raw": text}}
+    # Si el usuario simplemente dijo algo (ej. "comprar leche prioridad alta"),
+    # se convierte automáticamente en una nueva tarea con su prioridad extraída:
+    clean_title, prio = extract_priority(text)
+    return {"type": "add_task", "params": {"title": clean_title, "priority": prio, "raw": text}}
+
 
 
 

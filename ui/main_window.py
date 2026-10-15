@@ -766,9 +766,11 @@ class MainWindow(QMainWindow):
         title = params.get("title", "")
         if cmd_type == "add_task":
             if title:
-                self._db.add_task(title=title)
+                priority = params.get("priority", 2)
+                self._db.add_task(title=title, priority=priority)
                 self._refresh_tasks()
-                self.statusBar().showMessage(f'🎙 Tarea añadida: "{title}"', 5000)
+                prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
+                self.statusBar().showMessage(f'🎙 Tarea añadida [{prio_name}]: "{title}"', 5000)
         elif cmd_type == "complete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -831,9 +833,13 @@ class MainWindow(QMainWindow):
             # se trata directamente como título de nueva tarea ──────────
             raw = params.get("raw", "").strip()
             if raw:
-                self._db.add_task(title=raw)
+                title = params.get("title", raw)
+                priority = params.get("priority", 2)
+                self._db.add_task(title=title, priority=priority)
                 self._refresh_tasks()
-                self.statusBar().showMessage(f'🎙 Tarea creada: "{raw}"', 5000)
+                prio_name = {1: "Baja", 2: "Media", 3: "Alta"}.get(priority, "Media")
+                self.statusBar().showMessage(f'🎙 Tarea creada [{prio_name}]: "{title}"', 5000)
+
 
     # ------------------------------------------------------------------
     # View Switching (Tasks List vs Dashboard)
