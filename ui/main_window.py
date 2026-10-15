@@ -45,7 +45,10 @@ from core.tasks import DatabaseManager
 from core.recurrence import (
     parse_recurrence_days,
     serialize_recurrence_days,
+    parse_recurrence_times,
+    serialize_recurrence_times,
     extract_recurrence,
+    calculate_next_occurrence,
 )
 from core.voice import VoiceManager, extract_task_number
 from core.notifier import NotificationManager
@@ -394,17 +397,123 @@ class TaskEditDialog(QDialog):
 
         rec_layout.addWidget(self._rec_days_widget)
 
-        # Time row
-        rec_time_row = QHBoxLayout()
-        rec_time_lbl = QLabel("Hora:")
-        rec_time_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
-        rec_time_row.addWidget(rec_time_lbl)
+        # Multi-instance time selector
+        time_section = QFrame()
+        time_section.setStyleSheet(
+            f"""
+            QFrame {{
+                background-color: #11151C;
+                border: 1px solid {BORDER_SUBTLE};
+                border-radius: 8px;
+            }}
+            """
+        )
+        time_sec_layout = QVBoxLayout(time_section)
+        time_sec_layout.setContentsMargins(10, 8, 10, 8)
+        time_sec_layout.setSpacing(8)
 
-        self._rec_time_edit = QTimeEdit()
-        self._rec_time_edit.setDisplayFormat("HH:mm")
-        self._rec_time_edit.setTime(QTime(9, 0))
-        rec_time_row.addWidget(self._rec_time_edit, stretch=1)
-        rec_layout.addLayout(rec_time_row)
+        # Presets header
+        inst_header = QHBoxLayout()
+        inst_lbl = QLabel("Instancias al día:")
+        inst_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; font-weight: 700; border: none; background: transparent;")
+        inst_header.addWidget(inst_lbl)
+        inst_header.addStretch()
+
+        self._preset_1x = QPushButton("1x día")
+        self._preset_1x.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._preset_1x.setToolTip("1 instancia diaria (09:00)")
+        self._preset_1x.clicked.connect(lambda: self._set_preset_times(["09:00"]))
+        inst_header.addWidget(self._preset_1x)
+
+        self._preset_2x = QPushButton("2x día")
+        self._preset_2x.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._preset_2x.setToolTip("2 instancias al día (09:00 y 18:00)")
+        self._preset_2x.clicked.connect(lambda: self._set_preset_times(["09:00", "18:00"]))
+        inst_header.addWidget(self._preset_2x)
+
+        self._preset_3x = QPushButton("3x día")
+        self._preset_3x.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._preset_3x.setToolTip("3 instancias al día (08:00, 14:00 y 20:00)")
+        self._preset_3x.clicked.connect(lambda: self._set_preset_times(["08:00", "14:00", "20:00"]))
+        inst_header.addWidget(self._preset_3x)
+
+        time_sec_layout.addLayout(inst_header)
+
+        # Active instances chips container
+        self._chips_widget = QWidget()
+        self._chips_widget.setStyleSheet("border: none; background: transparent;")
+        self._chips_layout = QHBoxLayout(self._chips_widget)
+        self._chips_layout.setContentsMargins(0, 2, 0, 2)
+        self._chips_layout.setSpacing(6)
+        time_sec_layout.addWidget(self._chips_widget)
+
+        # Add custom time row
+        add_time_row = QHBoxLayout()
+        add_time_row.setSpacing(8)
+
+        add_time_lbl = QLabel("Horario:")
+        add_time_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; border: none; background: transparent;")
+        add_time_row.addWidget(add_time_lbl)
+
+        self._new_time_edit = QTimeEdit()
+        self._new_time_edit.setDisplayFormat("HH:mm")
+        self._new_time_edit.setTime(QTime(18, 0))
+        self._new_time_edit.setFixedWidth(90)
+        self._new_time_edit.setFixedHeight(30)
+        self._new_time_edit.setStyleSheet(
+            f"""
+            QTimeEdit {{
+                background-color: {BG_SURFACE};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER_SUBTLE};
+                border-radius: 6px;
+                padding: 2px 6px;
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QTimeEdit:focus {{
+                border-color: {ACCENT_TURQUOISE};
+            }}
+            """
+        )
+        add_time_row.addWidget(self._new_time_edit)
+
+        self._add_time_btn = QPushButton("➕ Añadir hora")
+        self._add_time_btn.setFixedHeight(30)
+        self._add_time_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_time_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: #161B24;
+                color: #5EEAD4;
+                border: 1px solid rgba(45, 212, 191, 0.4);
+                border-radius: 6px;
+                padding: 0 12px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(45, 212, 191, 0.15);
+                border-color: #2DD4BF;
+            }}
+            """
+        )
+        self._add_time_btn.clicked.connect(self._add_custom_time)
+        add_time_row.addWidget(self._add_time_btn)
+        add_time_row.addStretch()
+
+        time_sec_layout.addLayout(add_time_row)
+
+        # Informative note
+        inst_note = QLabel("💡 Se creará 1 sola tarea: al completarla, avanza automáticamente a la siguiente instancia.")
+        inst_note.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none; background: transparent;")
+        time_sec_layout.addWidget(inst_note)
+
+        rec_layout.addWidget(time_section)
+
+        self._times_list: List[str] = ["09:00"]
+        self._refresh_time_chips()
 
         self._rec_container.setVisible(False)
         self._rec_cb.toggled.connect(self._rec_container.setVisible)
@@ -467,6 +576,92 @@ class TaskEditDialog(QDialog):
             self._rec_type_combo.setCurrentIndex(2)
         self._rec_type_combo.blockSignals(False)
 
+    def _preset_btn_style(self, active: bool) -> str:
+        if active:
+            return (
+                f"QPushButton {{ background-color: {ACCENT_TURQUOISE}; color: #0D1015; "
+                f"border: 1px solid #5EEAD4; border-radius: 6px; padding: 3px 8px; font-weight: 700; font-size: 11px; }}"
+            )
+        else:
+            return (
+                f"QPushButton {{ background-color: #161B24; color: {TEXT_SECONDARY}; "
+                f"border: 1px solid {BORDER_SUBTLE}; border-radius: 6px; padding: 3px 8px; font-weight: 500; font-size: 11px; }}"
+                f"QPushButton:hover {{ border-color: {ACCENT_TURQUOISE}; color: {TEXT_PRIMARY}; }}"
+            )
+
+    def _set_preset_times(self, times: List[str]) -> None:
+        self._times_list = list(times)
+        self._refresh_time_chips()
+
+    def _add_custom_time(self) -> None:
+        new_time = self._new_time_edit.time().toString("HH:mm")
+        if new_time not in self._times_list:
+            self._times_list.append(new_time)
+            self._times_list.sort()
+            self._refresh_time_chips()
+
+    def _remove_time(self, t_str: str) -> None:
+        if len(self._times_list) > 1 and t_str in self._times_list:
+            self._times_list.remove(t_str)
+            self._refresh_time_chips()
+
+    def _refresh_time_chips(self) -> None:
+        while self._chips_layout.count() > 0:
+            item = self._chips_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Update presets styling
+        self._preset_1x.setStyleSheet(self._preset_btn_style(self._times_list == ["09:00"]))
+        self._preset_2x.setStyleSheet(self._preset_btn_style(self._times_list == ["09:00", "18:00"]))
+        self._preset_3x.setStyleSheet(self._preset_btn_style(self._times_list == ["08:00", "14:00", "20:00"]))
+
+        for t_str in self._times_list:
+            chip = QFrame()
+            chip.setStyleSheet(
+                f"""
+                QFrame {{
+                    background-color: rgba(45, 212, 191, 0.12);
+                    border: 1px solid rgba(45, 212, 191, 0.35);
+                    border-radius: 6px;
+                }}
+                """
+            )
+            c_lay = QHBoxLayout(chip)
+            c_lay.setContentsMargins(8, 3, 6, 3)
+            c_lay.setSpacing(6)
+
+            lbl = QLabel(f"⏰ {t_str}")
+            lbl.setFont(QFont(FONT_MONO, 12, QFont.Weight.Bold))
+            lbl.setStyleSheet(f"color: {ACCENT_TURQUOISE}; border: none; background: transparent;")
+            c_lay.addWidget(lbl)
+
+            if len(self._times_list) > 1:
+                del_btn = QPushButton("✕")
+                del_btn.setFixedSize(18, 18)
+                del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                del_btn.setToolTip("Eliminar horario")
+                del_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: transparent;
+                        color: {TEXT_MUTED};
+                        border: none;
+                        font-size: 11px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        color: #EF4444;
+                    }}
+                    """
+                )
+                del_btn.clicked.connect(lambda _, t=t_str: self._remove_time(t))
+                c_lay.addWidget(del_btn)
+
+            self._chips_layout.addWidget(chip)
+
+        self._chips_layout.addStretch()
+
     def _load_data(self) -> None:
         if self._task is None:
             if self._initial_category_id is not None:
@@ -520,11 +715,11 @@ class TaskEditDialog(QDialog):
                 btn.blockSignals(False)
 
             r_time = t.get("recurrence_time") or "09:00"
-            try:
-                parts = r_time.split(":")
-                self._rec_time_edit.setTime(QTime(int(parts[0]), int(parts[1])))
-            except Exception:
-                pass
+            self._times_list = parse_recurrence_times(r_time)
+            self._refresh_time_chips()
+        else:
+            self._times_list = ["09:00"]
+            self._refresh_time_chips()
 
         # Existing subtasks
         for st in self._subtasks:
@@ -574,9 +769,6 @@ class TaskEditDialog(QDialog):
         cat_id   = self._cat_combo.currentData()
         priority = self._priority_combo.currentIndex() + 1
         due_date = None
-        if self._due_cb.isChecked():
-            due_date = self._due_edit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
-
         is_recurring = self._rec_cb.isChecked()
         recurrence_days = None
         recurrence_time = None
@@ -587,8 +779,17 @@ class TaskEditDialog(QDialog):
             if not selected_days:
                 selected_days = [0, 1, 2, 3, 4, 5, 6]
             recurrence_days = selected_days
-            recurrence_time = self._rec_time_edit.time().toString("HH:mm")
+            recurrence_time = self._times_list if self._times_list else ["09:00"]
             recurrence_type = self._rec_type_combo.currentData() or "daily"
+
+        due_date = None
+        if self._due_cb.isChecked():
+            due_date = self._due_edit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
+        elif is_recurring:
+            next_dt = calculate_next_occurrence(recurrence_days, recurrence_time)
+            due_date = next_dt.isoformat(sep=" ", timespec="seconds")
+        else:
+            due_date = ""
 
         if self._task_id is None:
             # New task

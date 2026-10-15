@@ -56,45 +56,83 @@ def serialize_recurrence_days(days: List[int]) -> str:
     return json.dumps(cleaned)
 
 
+def parse_recurrence_times(time_input: Union[str, List[str], None]) -> List[str]:
+    """
+    Parse recurrence times from JSON string, comma string, single time string, or list.
+    Returns a sorted list of unique 'HH:MM' strings. Defaults to ['09:00'].
+    """
+    if not time_input:
+        return ["09:00"]
+
+    raw_list: List[str] = []
+    if isinstance(time_input, list):
+        raw_list = [str(t) for t in time_input]
+    elif isinstance(time_input, str):
+        s = time_input.strip()
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                raw_list = [str(t) for t in parsed]
+        except Exception:
+            pass
+        if not raw_list:
+            raw_list = [p.strip() for p in s.split(",") if p.strip()]
+
+    cleaned_times: Set[str] = set()
+    for item in raw_list:
+        parts = item.strip().split(":")
+        try:
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                cleaned_times.add(f"{h:02d}:{m:02d}")
+        except Exception:
+            continue
+
+    sorted_times = sorted(list(cleaned_times))
+    return sorted_times if sorted_times else ["09:00"]
+
+
+def serialize_recurrence_times(times: Union[str, List[str], None]) -> str:
+    """Serialize a list of 'HH:MM' strings into a JSON list string."""
+    cleaned = parse_recurrence_times(times)
+    return json.dumps(cleaned)
+
+
 def calculate_next_occurrence(
     recurrence_days: Optional[Union[List[int], str]],
-    recurrence_time: str = "09:00",
+    recurrence_time: Union[str, List[str]] = "09:00",
     from_dt: Optional[datetime] = None,
 ) -> datetime:
     """
-    Calculate the next occurrence datetime based on recurrence days and time.
+    Calculate the next occurrence datetime based on recurrence days and multiple recurrence times.
     """
     if from_dt is None:
         from_dt = datetime.now()
 
-    # Parse hour and minute
-    try:
-        parts = str(recurrence_time).strip().split(":")
-        r_hour = int(parts[0])
-        r_minute = int(parts[1]) if len(parts) > 1 else 0
-        if not (0 <= r_hour <= 23 and 0 <= r_minute <= 59):
-            r_hour, r_minute = 9, 0
-    except Exception:
-        r_hour, r_minute = 9, 0
-
     parsed_days = parse_recurrence_days(recurrence_days)
     target_days = set(parsed_days) if parsed_days else set(ALL_DAYS)
+    times = parse_recurrence_times(recurrence_time)
 
-    # Check next 8 days starting today
+    # Check next 8 days starting from the date of from_dt
     for offset in range(8):
         cand_date = from_dt.date() + timedelta(days=offset)
         if cand_date.weekday() in target_days:
-            cand_dt = datetime(cand_date.year, cand_date.month, cand_date.day, r_hour, r_minute)
-            if offset > 0 or cand_dt > from_dt:
-                return cand_dt
+            for t_str in times:
+                parts = t_str.split(":")
+                h, m = int(parts[0]), int(parts[1])
+                cand_dt = datetime(cand_date.year, cand_date.month, cand_date.day, h, m)
+                if cand_dt > from_dt:
+                    return cand_dt
 
-    # Fallback to 7 days ahead
-    return from_dt + timedelta(days=7)
+    # Fallback to next week with first time
+    first_h, first_m = int(times[0].split(":")[0]), int(times[0].split(":")[1])
+    return datetime(from_dt.year, from_dt.month, from_dt.day, first_h, first_m) + timedelta(days=7)
 
 
 def format_recurrence_badge(
     recurrence_days: Optional[Union[List[int], str]] = None,
-    recurrence_time: str = "09:00",
+    recurrence_time: Union[str, List[str]] = "09:00",
     recurrence_type: str = "daily",
     is_recurring: bool = True,
 ) -> str:
@@ -102,14 +140,15 @@ def format_recurrence_badge(
     Format a concise HUD label for a task card.
     Examples:
       - '🔁 Diario 09:00'
-      - '🔁 Lun-Vie 18:30'
+      - '🔁 Diario 2x (09:00, 18:00)'
+      - '🔁 Lun-Vie 2x (09:00, 18:00)'
       - '🔁 Lun, Mié 10:00'
     """
     if not is_recurring:
         return ""
 
-    time_str = recurrence_time.strip() if recurrence_time else "09:00"
     days = parse_recurrence_days(recurrence_days)
+    times = parse_recurrence_times(recurrence_time)
 
     if len(days) == 7:
         days_label = "Diario"
@@ -122,10 +161,15 @@ def format_recurrence_badge(
     else:
         days_label = ", ".join(WEEKDAY_SHORT_ES[d] for d in days)
 
-    return f"🔁 {days_label} {time_str}"
+    if len(times) == 1:
+        return f"🔁 {days_label} {times[0]}"
+    elif len(times) == 2:
+        return f"🔁 {days_label} 2x ({times[0]}, {times[1]})"
+    else:
+        return f"🔁 {days_label} {len(times)}x ({', '.join(times)})"
 
 
-def extract_recurrence(text: str) -> tuple[str, bool, Optional[List[int]], Optional[str], Optional[str]]:
+def extract_recurrence(text: str) -> tuple[str, bool, Optional[List[int]], Optional[Union[str, List[str]]], Optional[str]]:
     """
     Extract recurrence keywords, days and time from a task string.
     Returns: (cleaned_title, is_recurring, recurrence_days, recurrence_time, recurrence_type)
@@ -137,19 +181,40 @@ def extract_recurrence(text: str) -> tuple[str, bool, Optional[List[int]], Optio
     recurrence_time = None
     recurrence_type = None
 
+    # Check "N veces al dia" (e.g. "2 veces al dia", "dos veces al dia")
+    mult_pat = re.compile(r'\b(?:(\d+|dos|tres|cuatro))\s+veces\s+al\s+d[ií]a\b', re.IGNORECASE)
+    m_mult = mult_pat.search(cleaned)
+    default_mult_times = None
+    if m_mult:
+        is_recurring = True
+        n_str = m_mult.group(1).lower()
+        num_map = {"dos": 2, "tres": 3, "cuatro": 4}
+        count = num_map.get(n_str, int(n_str) if n_str.isdigit() else 2)
+        if count == 2:
+            default_mult_times = ["09:00", "18:00"]
+        elif count == 3:
+            default_mult_times = ["08:00", "14:00", "20:00"]
+        elif count == 4:
+            default_mult_times = ["08:00", "12:00", "16:00", "20:00"]
+        cleaned = mult_pat.sub('', cleaned)
+
     # 1. Match Time: e.g. "a las 09:30", "a las 8", "a las 18:00 horas"
     time_pat = re.compile(
         r'\b(?:a\s+las?|a\s+la)\s+(\d{1,2})(?::(\d{2}))?\s*(?:horas?|hrs?|hs?)?\b',
         re.IGNORECASE
     )
-    m_time = time_pat.search(cleaned)
-    if m_time:
-        is_recurring = True
+    extracted_times = []
+    for m_time in time_pat.finditer(cleaned):
         hour = int(m_time.group(1))
         minute = int(m_time.group(2)) if m_time.group(2) else 0
         if 0 <= hour <= 23 and 0 <= minute <= 59:
-            recurrence_time = f"{hour:02d}:{minute:02d}"
+            extracted_times.append(f"{hour:02d}:{minute:02d}")
+    if extracted_times:
+        is_recurring = True
+        recurrence_time = extracted_times
         cleaned = time_pat.sub('', cleaned)
+    elif default_mult_times:
+        recurrence_time = default_mult_times
 
     # 2. Daily patterns: "todos los dias", "diario", "diariamente", "cada dia"
     daily_pat = re.compile(

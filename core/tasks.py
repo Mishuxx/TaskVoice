@@ -15,7 +15,8 @@ from typing import Optional, List, Dict, Any, Union
 from core.categorizer import deduce_category_name
 from core.recurrence import (
     calculate_next_occurrence, parse_recurrence_days,
-    serialize_recurrence_days, format_recurrence_badge,
+    serialize_recurrence_days, parse_recurrence_times,
+    serialize_recurrence_times, format_recurrence_badge,
 )
 
 
@@ -59,8 +60,8 @@ class DatabaseManager:
         tasks = db.get_all_tasks()
     """
 
-    def __init__(self, db_path: Path = DB_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: Union[Path, str] = DB_PATH):
+        self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
         self._connect()
@@ -373,7 +374,7 @@ class DatabaseManager:
             category_id = self.deduce_or_create_category(f"{title} {description}".strip())
 
         r_days_str = serialize_recurrence_days(parse_recurrence_days(recurrence_days)) if is_recurring else ""
-        r_time_str = (recurrence_time or "09:00") if is_recurring else ""
+        r_time_str = serialize_recurrence_times(parse_recurrence_times(recurrence_time)) if is_recurring else ""
         r_type_str = (recurrence_type or "daily") if is_recurring else ""
 
         if is_recurring and not due_date:
@@ -406,7 +407,7 @@ class DatabaseManager:
         priority: Optional[int] = None,
         is_recurring: Optional[bool] = None,
         recurrence_days: Optional[Union[List[int], str]] = None,
-        recurrence_time: Optional[str] = None,
+        recurrence_time: Optional[Union[str, List[str]]] = None,
         recurrence_type: Optional[str] = None,
     ) -> None:
         """Partially update a task's fields."""
@@ -416,10 +417,13 @@ class DatabaseManager:
 
         new_is_rec = 1 if (is_recurring if is_recurring is not None else task.get("is_recurring", 0)) else 0
         new_r_days = serialize_recurrence_days(parse_recurrence_days(recurrence_days)) if recurrence_days is not None else task.get("recurrence_days", "")
-        new_r_time = recurrence_time if recurrence_time is not None else task.get("recurrence_time", "")
+        new_r_time = serialize_recurrence_times(parse_recurrence_times(recurrence_time)) if recurrence_time is not None else task.get("recurrence_time", "")
         new_r_type = recurrence_type if recurrence_type is not None else task.get("recurrence_type", "")
 
-        new_due = due_date if due_date is not None else task["due_date"]
+        if due_date is not None:
+            new_due = due_date if due_date != "" else None
+        else:
+            new_due = task["due_date"]
         if new_is_rec and not new_due:
             new_due = calculate_next_occurrence(new_r_days, new_r_time).isoformat(sep=" ", timespec="seconds")
 
@@ -477,12 +481,15 @@ class DatabaseManager:
         if task.get("is_recurring"):
             days = parse_recurrence_days(task.get("recurrence_days"))
             r_time = task.get("recurrence_time") or "09:00"
-            base_dt = datetime.now()
+            now_dt = datetime.now()
+            base_dt = now_dt
             if task.get("due_date"):
                 try:
                     dt = datetime.fromisoformat(task["due_date"])
-                    if dt > base_dt:
+                    if dt.date() == now_dt.date() or dt > now_dt:
                         base_dt = dt
+                    else:
+                        base_dt = datetime.combine(now_dt.date(), datetime.min.time())
                 except Exception:
                     pass
             next_dt = calculate_next_occurrence(days, r_time, from_dt=base_dt)

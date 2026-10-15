@@ -131,7 +131,7 @@ QDialog {{
 }}
 
 /* Form inputs in dialogs */
-QLineEdit, QTextEdit, QSpinBox, QDateTimeEdit, QComboBox {{
+QLineEdit, QTextEdit, QSpinBox, QDateTimeEdit, QTimeEdit, QComboBox {{
     background-color: {BG_SURFACE};
     color: {TEXT_PRIMARY};
     border: 1px solid {BORDER_SUBTLE};
@@ -139,8 +139,22 @@ QLineEdit, QTextEdit, QSpinBox, QDateTimeEdit, QComboBox {{
     padding: 6px 12px;
     font-size: 13px;
 }}
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{
+QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QDateTimeEdit:focus, QTimeEdit:focus, QComboBox:focus {{
     border: 1px solid {ACCENT_VIOLET};
+}}
+QTimeEdit::up-button, QTimeEdit::down-button,
+QDateTimeEdit::up-button, QDateTimeEdit::down-button,
+QSpinBox::up-button, QSpinBox::down-button {{
+    background-color: #1F2837;
+    border: none;
+    width: 18px;
+    border-radius: 4px;
+    margin: 1px;
+}}
+QTimeEdit::up-button:hover, QTimeEdit::down-button:hover,
+QDateTimeEdit::up-button:hover, QDateTimeEdit::down-button:hover,
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+    background-color: {ACCENT_TURQUOISE};
 }}
 QComboBox::drop-down {{
     border: none;

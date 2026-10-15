@@ -36,7 +36,7 @@ from ui.tokens import (
     PRIORITY_HIGH_LABEL, PRIORITY_MED_LABEL, PRIORITY_LOW_LABEL,
     PRIORITY_XP, FONT_FAMILY, FONT_MONO,
 )
-from core.recurrence import format_recurrence_badge
+from core.recurrence import format_recurrence_badge, parse_recurrence_times
 
 
 class HudCheckbox(QWidget):
@@ -356,14 +356,22 @@ class TaskWidget(QFrame):
                 dt = datetime.fromisoformat(due)
                 now = datetime.now()
                 diff = dt - now
+                time_str = dt.strftime("%H:%M")
+                r_times = parse_recurrence_times(task.get("recurrence_time")) if is_rec else []
+                inst_suffix = ""
+                if len(r_times) > 1 and time_str in r_times:
+                    curr_idx = r_times.index(time_str) + 1
+                    inst_suffix = f" ({curr_idx}/{len(r_times)})"
+
                 if diff.total_seconds() < 0 and not is_completed:
-                    self._due_label.setText(f"⚠ Vencida: {dt.strftime('%d/%m %H:%M')}")
+                    self._due_label.setText(f"⚠ Vencida: {dt.strftime('%d/%m %H:%M')}{inst_suffix}")
                     self._due_label.setStyleSheet("color: #F87171; font-size: 12px;")
                 elif diff.total_seconds() < 3600 and not is_completed:
-                    self._due_label.setText(f"⏰ {dt.strftime('%d/%m %H:%M')}")
+                    self._due_label.setText(f"⏰ {dt.strftime('%d/%m %H:%M')}{inst_suffix}")
                     self._due_label.setStyleSheet("color: #FBBF24; font-size: 12px;")
                 else:
-                    self._due_label.setText(f"📅 {dt.strftime('%d/%m/%Y')}")
+                    date_display = dt.strftime("%d/%m/%Y %H:%M") if is_rec else dt.strftime("%d/%m/%Y")
+                    self._due_label.setText(f"📅 {date_display}{inst_suffix}")
                     self._due_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
             except Exception:
                 self._due_label.setText(f"📅 {due}")
