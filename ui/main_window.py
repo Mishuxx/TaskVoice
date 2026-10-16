@@ -99,6 +99,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # Voice
     "voice_enabled": True,
     "voice_engine": "google",
+    "voice_language": "es",
     "vosk_model_path": "",
     "push_to_talk": False,
     "global_hotkey_enabled": True,
@@ -1233,7 +1234,8 @@ class MainWindow(QMainWindow):
     def _init_voice(self) -> None:
         engine = self._settings.get("voice_engine", "google")
         model_path = self._settings.get("vosk_model_path", "")
-        self._voice_mgr = VoiceManager(engine=engine, vosk_model_path=model_path, parent=self)
+        lang = self._settings.get("voice_language", "es")
+        self._voice_mgr = VoiceManager(engine=engine, vosk_model_path=model_path, language=lang, parent=self)
         self._voice_mgr.command_recognized.connect(self._on_voice_command)
         self._voice_mgr.listening_state_changed.connect(self._on_listening_changed)
         self._voice_mgr.error_occurred.connect(self._on_voice_error)

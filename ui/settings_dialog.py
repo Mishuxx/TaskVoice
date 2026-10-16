@@ -431,6 +431,11 @@ class SettingsDialog(QDialog):
         self._engine_combo.addItems(["Google (online)", "Vosk (offline)"])
         form.addRow("Motor de voz:", self._engine_combo)
 
+        self._voice_lang_combo = QComboBox()
+        self._voice_lang_combo.addItem("Español (Spanish)", "es")
+        self._voice_lang_combo.addItem("English (Inglés)", "en")
+        form.addRow("Idioma de voz (Speech Language):", self._voice_lang_combo)
+
         vosk_row = QHBoxLayout()
         self._vosk_path_edit = QLineEdit()
         self._vosk_path_edit.setPlaceholderText("Ruta al modelo Vosk…")
@@ -632,6 +637,8 @@ class SettingsDialog(QDialog):
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
         engine = s.get("voice_engine", "google")
         self._engine_combo.setCurrentIndex(0 if engine == "google" else 1)
+        v_lang = s.get("voice_language", "es")
+        self._voice_lang_combo.setCurrentIndex(1 if v_lang == "en" else 0)
         self._vosk_path_edit.setText(s.get("vosk_model_path", ""))
         self._ptt_cb.setChecked(s.get("push_to_talk", False))
         self._global_hotkey_cb.setChecked(s.get("global_hotkey_enabled", True))
@@ -674,6 +681,7 @@ class SettingsDialog(QDialog):
             # Voice
             "voice_enabled":             self._voice_enabled_cb.isChecked(),
             "voice_engine":              "google" if self._engine_combo.currentIndex() == 0 else "vosk",
+            "voice_language":            "en" if self._voice_lang_combo.currentIndex() == 1 else "es",
             "vosk_model_path":           self._vosk_path_edit.text().strip(),
             "push_to_talk":              self._ptt_cb.isChecked(),
             "global_hotkey_enabled":     self._global_hotkey_cb.isChecked(),

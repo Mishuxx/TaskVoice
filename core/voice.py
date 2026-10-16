@@ -228,10 +228,11 @@ class _VoiceWorker(QObject):
     error_occurred  = pyqtSignal(str)
     finished        = pyqtSignal()
 
-    def __init__(self, engine: str = "google", vosk_model_path: str = "", parent=None):
+    def __init__(self, engine: str = "google", vosk_model_path: str = "", language: str = "es", parent=None):
         super().__init__(parent)
         self.engine = engine                   # "vosk" | "google"
         self.vosk_model_path = vosk_model_path
+        self.language = language or "es"       # "es" | "en"
         self._running = False
         self._mutex = QMutex()
         self._model = None     # vosk Model (lazy-loaded)
@@ -354,12 +355,7 @@ class _VoiceWorker(QObject):
                         break
 
                     try:
-                        try:
-                            from core.i18n import get_language
-                            lang_code = "en-US" if get_language() == "en" else "es-ES"
-                        except Exception:
-                            lang_code = "es-ES"
-
+                        lang_code = "en-US" if self.language == "en" else "es-ES"
                         text = recognizer.recognize_google(audio, language=lang_code)
                         text = text.strip() if text else ""
                         if text:
@@ -439,11 +435,13 @@ class VoiceManager(QObject):
         self,
         engine: str = "google",
         vosk_model_path: str = "",
+        language: str = "es",
         parent: Optional[QObject] = None,
     ):
         super().__init__(parent)
         self.engine = engine
         self.vosk_model_path = vosk_model_path
+        self.language = language or "es"
         self._thread: Optional[QThread] = None
         self._worker: Optional[_VoiceWorker] = None
         self._listening = False
@@ -469,6 +467,7 @@ class VoiceManager(QObject):
         self._worker = _VoiceWorker(
             engine=self.engine,
             vosk_model_path=self.vosk_model_path,
+            language=self.language,
         )
         self._worker.moveToThread(self._thread)
 
