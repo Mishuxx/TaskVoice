@@ -41,7 +41,7 @@ class GlobalHotkeyListener(QThread):
 
     def __init__(
         self,
-        modifiers: int = MOD_CONTROL | MOD_ALT,
+        modifiers: int = MOD_WIN | MOD_ALT,
         vk_code: int = VK_SPACE,
         parent: Optional[object] = None,
     ):
@@ -83,7 +83,7 @@ class GlobalHotkeyListener(QThread):
 
         self._is_registered = True
         logger.info(
-            "Global hotkey registered successfully (Ctrl+Alt+Space, ID=%d).",
+            "Global hotkey registered successfully (Win+Alt+Space, ID=%d).",
             HOTKEY_ID_VOICE,
         )
 

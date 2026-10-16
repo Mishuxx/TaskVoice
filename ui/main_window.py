@@ -1250,7 +1250,7 @@ class MainWindow(QMainWindow):
             self._voice_mgr.stop_listening()
 
     def _init_global_hotkey(self) -> None:
-        """Register Windows global hotkey (Ctrl + Alt + Space) for instant hands-free voice dictation."""
+        """Register Windows global hotkey (Win + Alt + Space) for instant hands-free voice dictation."""
         if hasattr(self, "_hotkey_listener") and self._hotkey_listener:
             try:
                 self._hotkey_listener.stop()
@@ -1268,7 +1268,7 @@ class MainWindow(QMainWindow):
                 logger.warning("Failed to start GlobalHotkeyListener: %s", exc)
 
     def _on_global_voice_hotkey(self) -> None:
-        """Called when user presses Ctrl+Alt+Space anywhere in Windows."""
+        """Called when user presses Win+Alt+Space anywhere in Windows."""
         # Restore window if hidden or minimized
         if self.isMinimized() or not self.isVisible():
             self.showNormal()

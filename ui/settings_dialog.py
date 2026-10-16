@@ -452,13 +452,13 @@ class SettingsDialog(QDialog):
         hotkey_layout.setSpacing(8)
         hotkey_layout.setContentsMargins(14, 14, 14, 14)
 
-        self._global_hotkey_cb = QCheckBox("Activar atajo global: Ctrl + Alt + Espacio")
+        self._global_hotkey_cb = QCheckBox("Activar atajo global: Win + Alt + Espacio")
         self._global_hotkey_cb.setStyleSheet("font-weight: 700; color: #5EEAD4;")
         hotkey_layout.addWidget(self._global_hotkey_cb)
 
         hotkey_hint = QLabel(
             "Permite activar o desactivar el micrófono para dictar desde cualquier ventana "
-            "(Google Chrome, videojuegos, documentos o con Taskmaster minimizado) sin ningún conflicto de teclas."
+            "(Google Chrome, videojuegos, documentos o con Taskmaster minimizado) pulsando Win + Alt + Espacio."
         )
         hotkey_hint.setWordWrap(True)
         hotkey_hint.setStyleSheet("color: #94A3B8; font-size: 11px;")
