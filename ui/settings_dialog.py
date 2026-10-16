@@ -432,8 +432,9 @@ class SettingsDialog(QDialog):
         form.addRow("Motor de voz:", self._engine_combo)
 
         self._voice_lang_combo = QComboBox()
-        self._voice_lang_combo.addItem("Español (Spanish)", "es")
-        self._voice_lang_combo.addItem("English (Inglés)", "en")
+        self._voice_lang_combo.addItem("Auto (Bilingüe Español / English)", "auto")
+        self._voice_lang_combo.addItem("Solo Español (es-ES)", "es")
+        self._voice_lang_combo.addItem("Only English (en-US)", "en")
         form.addRow("Idioma de voz (Speech Language):", self._voice_lang_combo)
 
         vosk_row = QHBoxLayout()
@@ -637,8 +638,13 @@ class SettingsDialog(QDialog):
         self._voice_enabled_cb.setChecked(s.get("voice_enabled", True))
         engine = s.get("voice_engine", "google")
         self._engine_combo.setCurrentIndex(0 if engine == "google" else 1)
-        v_lang = s.get("voice_language", "es")
-        self._voice_lang_combo.setCurrentIndex(1 if v_lang == "en" else 0)
+        v_lang = s.get("voice_language", "auto")
+        if v_lang == "es":
+            self._voice_lang_combo.setCurrentIndex(1)
+        elif v_lang == "en":
+            self._voice_lang_combo.setCurrentIndex(2)
+        else:
+            self._voice_lang_combo.setCurrentIndex(0)
         self._vosk_path_edit.setText(s.get("vosk_model_path", ""))
         self._ptt_cb.setChecked(s.get("push_to_talk", False))
         self._global_hotkey_cb.setChecked(s.get("global_hotkey_enabled", True))
@@ -646,6 +652,8 @@ class SettingsDialog(QDialog):
     def _save(self) -> None:
         t_morning = self._summary_time_edit.time()
         t_evening = self._evening_time_edit.time()
+        v_idx = self._voice_lang_combo.currentIndex()
+        v_lang = "es" if v_idx == 1 else ("en" if v_idx == 2 else "auto")
         self._settings.update({
             "theme":                     "dark" if self._theme_combo.currentIndex() == 0 else "light",
             "language":                  "en" if self._lang_combo.currentIndex() == 1 else "es",
@@ -681,7 +689,7 @@ class SettingsDialog(QDialog):
             # Voice
             "voice_enabled":             self._voice_enabled_cb.isChecked(),
             "voice_engine":              "google" if self._engine_combo.currentIndex() == 0 else "vosk",
-            "voice_language":            "en" if self._voice_lang_combo.currentIndex() == 1 else "es",
+            "voice_language":            v_lang,
             "vosk_model_path":           self._vosk_path_edit.text().strip(),
             "push_to_talk":              self._ptt_cb.isChecked(),
             "global_hotkey_enabled":     self._global_hotkey_cb.isChecked(),

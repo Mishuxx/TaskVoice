@@ -214,6 +214,62 @@ def parse_command(text: str) -> Optional[Dict[str, Any]]:
 
 
 
+def score_candidate(text: str, lang: str, confidence: float) -> float:
+    """Score a recognition candidate to choose between Spanish and English in bilingual mode."""
+    if not text:
+        return -1.0
+
+    score = float(confidence or 0.5) * 10.0
+
+    # 1. Check if it matches an actionable command pattern
+    cmd = parse_command(text)
+    if cmd:
+        cmd_type = cmd.get("type")
+        if cmd_type in ("complete_task", "delete_task", "show_missions", "show_dashboard", "show_tasks", "show_level"):
+            score += 25.0
+        elif cmd_type == "add_task":
+            raw_title = cmd.get("params", {}).get("raw", "")
+            if raw_title and raw_title.lower() != text.lower():
+                score += 15.0
+
+    text_lower = text.lower()
+    words = set(re.findall(r'\b\w+\b', text_lower))
+
+    if lang == "es":
+        es_markers = [
+            "añadir", "agregar", "crear", "nueva tarea", "completar", "eliminar", "borrar",
+            "recordar", "prioridad", "alta", "baja", "media", "urgente", "mañana", "hoy",
+            "lunes", "martes", "miércoles", "miercoles", "jueves", "viernes", "sábado", "sabado",
+            "domingo", "actualizar", "hacer", "terminar", "tarea", "tareas"
+        ]
+        for m in es_markers:
+            if m in text_lower:
+                score += 12.0
+                break
+        es_words = {
+            "de", "la", "el", "en", "y", "a", "los", "las", "un", "una", "por", "para", "con",
+            "del", "al", "mi", "mis", "es", "que", "se", "no", "si", "tarea", "tareas"
+        }
+        score += len(words.intersection(es_words)) * 3.0
+    elif lang == "en":
+        en_markers = [
+            "add task", "new task", "create task", "complete", "delete", "remove", "remind me",
+            "priority", "high", "low", "medium", "urgent", "tomorrow", "today", "monday",
+            "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "update", "task", "tasks"
+        ]
+        for m in en_markers:
+            if m in text_lower:
+                score += 12.0
+                break
+        en_words = {
+            "the", "and", "a", "an", "in", "to", "of", "for", "with", "at", "by", "from", "on",
+            "is", "my", "it", "this", "that", "be", "have", "task", "tasks"
+        }
+        score += len(words.intersection(en_words)) * 3.0
+
+    return score
+
+
 # ===========================================================================
 # Worker thread
 # ===========================================================================
@@ -228,11 +284,11 @@ class _VoiceWorker(QObject):
     error_occurred  = pyqtSignal(str)
     finished        = pyqtSignal()
 
-    def __init__(self, engine: str = "google", vosk_model_path: str = "", language: str = "es", parent=None):
+    def __init__(self, engine: str = "google", vosk_model_path: str = "", language: str = "auto", parent=None):
         super().__init__(parent)
         self.engine = engine                   # "vosk" | "google"
         self.vosk_model_path = vosk_model_path
-        self.language = language or "es"       # "es" | "en"
+        self.language = language or "auto"     # "auto" | "es" | "en"
         self._running = False
         self._mutex = QMutex()
         self._model = None     # vosk Model (lazy-loaded)
@@ -316,6 +372,56 @@ class _VoiceWorker(QObject):
     # Google helpers
     # ------------------------------------------------------------------
 
+    def _recognize_audio(self, recognizer, audio) -> Optional[str]:
+        """Recognize audio with bilingual support (Auto: ES & EN in parallel) or single language."""
+        if self.language == "es":
+            try:
+                text = recognizer.recognize_google(audio, language="es-ES")
+                return text.strip() if text else None
+            except Exception:
+                return None
+        elif self.language == "en":
+            try:
+                text = recognizer.recognize_google(audio, language="en-US")
+                return text.strip() if text else None
+            except Exception:
+                return None
+
+        # Mode "auto" / bilingual: query Spanish and English concurrently
+        from concurrent.futures import ThreadPoolExecutor
+
+        def query(lang_code: str):
+            try:
+                res, conf = recognizer.recognize_google(audio, language=lang_code, with_confidence=True)
+                return res.strip() if res else None, float(conf or 0.5)
+            except Exception:
+                return None, 0.0
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_es = executor.submit(query, "es-ES")
+            f_en = executor.submit(query, "en-US")
+            text_es, conf_es = f_es.result()
+            text_en, conf_en = f_en.result()
+
+        if not text_es and not text_en:
+            return None
+        if text_es and not text_en:
+            return text_es
+        if text_en and not text_es:
+            return text_en
+
+        # Both returned a candidate: score them
+        score_es = score_candidate(text_es, "es", conf_es)
+        score_en = score_candidate(text_en, "en", conf_en)
+        logger.debug(
+            "Bilingual voice scoring: ES ('%s', score=%.2f) vs EN ('%s', score=%.2f)",
+            text_es, score_es, text_en, score_en
+        )
+
+        if score_en > score_es:
+            return text_en
+        return text_es
+
     def _run_google(self) -> None:
         """Continuous Google recognition keeping the microphone active."""
         try:
@@ -355,13 +461,10 @@ class _VoiceWorker(QObject):
                         break
 
                     try:
-                        lang_code = "en-US" if self.language == "en" else "es-ES"
-                        text = recognizer.recognize_google(audio, language=lang_code)
-                        text = text.strip() if text else ""
+                        text = self._recognize_audio(recognizer, audio)
                         if text:
                             self.text_recognised.emit(text)
                     except sr.UnknownValueError:
-                        # Audio detectado pero sin palabras reconocibles
                         continue
                     except sr.RequestError as exc:
                         self.error_occurred.emit(f"Error de conexión de voz: {exc}")
