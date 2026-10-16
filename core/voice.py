@@ -329,33 +329,50 @@ class _VoiceWorker(QObject):
 
         recognizer = sr.Recognizer()
         recognizer.dynamic_energy_threshold = True
+        recognizer.energy_threshold = 300
         recognizer.pause_threshold = 0.8
         try:
             with sr.Microphone() as source:
                 # Calibrar ruido de fondo una sola vez al inicio
                 try:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.4)
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 except Exception:
                     pass
 
                 while self._is_running():
+                    try:
+                        audio = recognizer.listen(source, timeout=3.0, phrase_time_limit=12.0)
+                    except sr.WaitTimeoutError:
+                        continue
+                    except Exception as exc:
+                        if not self._is_running():
+                            break
+                        logger.debug("Microphone listen error: %s", exc)
+                        continue
+
+                    if not self._is_running():
+                        break
+
                     try:
                         try:
                             from core.i18n import get_language
                             lang_code = "en-US" if get_language() == "en" else "es-ES"
                         except Exception:
                             lang_code = "es-ES"
+
                         text = recognizer.recognize_google(audio, language=lang_code)
                         text = text.strip() if text else ""
                         if text:
                             self.text_recognised.emit(text)
-                    except sr.WaitTimeoutError:
-                        continue
                     except sr.UnknownValueError:
+                        # Audio detectado pero sin palabras reconocibles
                         continue
                     except sr.RequestError as exc:
                         self.error_occurred.emit(f"Error de conexión de voz: {exc}")
                         break
+                    except Exception as exc:
+                        logger.debug("Speech recognition exception: %s", exc)
+                        continue
         except Exception as exc:
             self.error_occurred.emit(f"Error de micrófono: {exc}")
 
