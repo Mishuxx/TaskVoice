@@ -101,6 +101,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "voice_engine": "google",
     "vosk_model_path": "",
     "push_to_talk": False,
+    "global_hotkey_enabled": True,
 
     # Telegram Bot
     "telegram_enabled": False,
@@ -969,6 +970,7 @@ class MainWindow(QMainWindow):
         self._settings = settings
 
         self._voice_mgr: Optional[VoiceManager] = None
+        self._hotkey_listener = None
         self._active_category_id: Optional[int] = None
         self._task_widgets: Dict[int, TaskWidget] = {}
         self._current_tasks: List[Dict[str, Any]] = []
@@ -983,6 +985,8 @@ class MainWindow(QMainWindow):
 
         if settings.get("voice_enabled", True):
             self._init_voice()
+
+        self._init_global_hotkey()
 
         self._refresh_categories_sidebar()
         self._refresh_tasks()
@@ -1244,6 +1248,35 @@ class MainWindow(QMainWindow):
             self._voice_mgr.start_listening()
         else:
             self._voice_mgr.stop_listening()
+
+    def _init_global_hotkey(self) -> None:
+        """Register Windows global hotkey (Ctrl + Alt + Space) for instant hands-free voice dictation."""
+        if hasattr(self, "_hotkey_listener") and self._hotkey_listener:
+            try:
+                self._hotkey_listener.stop()
+            except Exception:
+                pass
+            self._hotkey_listener = None
+
+        if self._settings.get("global_hotkey_enabled", True):
+            try:
+                from core.hotkey import GlobalHotkeyListener
+                self._hotkey_listener = GlobalHotkeyListener(parent=self)
+                self._hotkey_listener.hotkey_triggered.connect(self._on_global_voice_hotkey)
+                self._hotkey_listener.start()
+            except Exception as exc:
+                logger.warning("Failed to start GlobalHotkeyListener: %s", exc)
+
+    def _on_global_voice_hotkey(self) -> None:
+        """Called when user presses Ctrl+Alt+Space anywhere in Windows."""
+        # Restore window if hidden or minimized
+        if self.isMinimized() or not self.isVisible():
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+        # Trigger voice dictation toggle
+        self._quick_add._on_mic_clicked()
 
     @pyqtSlot(bool)
     def _on_listening_changed(self, listening: bool) -> None:
@@ -1803,6 +1836,8 @@ class MainWindow(QMainWindow):
         if new_settings.get("voice_enabled", True):
             self._init_voice()
 
+        self._init_global_hotkey()
+
         self._refresh_categories_sidebar()
         self._refresh_tasks()
 
@@ -1855,6 +1890,11 @@ class MainWindow(QMainWindow):
 
     def quit_app(self) -> None:
         """Cleanly quit the application."""
+        if hasattr(self, "_hotkey_listener") and self._hotkey_listener:
+            try:
+                self._hotkey_listener.stop()
+            except Exception:
+                pass
         if self._voice_mgr:
             self._voice_mgr.cleanup()
         self._notifier.shutdown()

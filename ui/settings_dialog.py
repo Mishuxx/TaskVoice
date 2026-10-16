@@ -445,6 +445,27 @@ class SettingsDialog(QDialog):
         form.addRow(self._ptt_cb)
 
         layout.addLayout(form)
+
+        # Global Hotkey
+        hotkey_box = QGroupBox("Atajo Global del Sistema (Windows)")
+        hotkey_layout = QVBoxLayout(hotkey_box)
+        hotkey_layout.setSpacing(8)
+        hotkey_layout.setContentsMargins(14, 14, 14, 14)
+
+        self._global_hotkey_cb = QCheckBox("Activar atajo global: Ctrl + Alt + Espacio")
+        self._global_hotkey_cb.setStyleSheet("font-weight: 700; color: #5EEAD4;")
+        hotkey_layout.addWidget(self._global_hotkey_cb)
+
+        hotkey_hint = QLabel(
+            "Permite activar o desactivar el micrófono para dictar desde cualquier ventana "
+            "(Google Chrome, videojuegos, documentos o con Taskmaster minimizado) sin ningún conflicto de teclas."
+        )
+        hotkey_hint.setWordWrap(True)
+        hotkey_hint.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        hotkey_layout.addWidget(hotkey_hint)
+
+        layout.addWidget(hotkey_box)
+
         layout.addStretch()
         return w
 
@@ -613,6 +634,7 @@ class SettingsDialog(QDialog):
         self._engine_combo.setCurrentIndex(0 if engine == "google" else 1)
         self._vosk_path_edit.setText(s.get("vosk_model_path", ""))
         self._ptt_cb.setChecked(s.get("push_to_talk", False))
+        self._global_hotkey_cb.setChecked(s.get("global_hotkey_enabled", True))
 
     def _save(self) -> None:
         t_morning = self._summary_time_edit.time()
@@ -654,6 +676,7 @@ class SettingsDialog(QDialog):
             "voice_engine":              "google" if self._engine_combo.currentIndex() == 0 else "vosk",
             "vosk_model_path":           self._vosk_path_edit.text().strip(),
             "push_to_talk":              self._ptt_cb.isChecked(),
+            "global_hotkey_enabled":     self._global_hotkey_cb.isChecked(),
         })
         self.settings_saved.emit(self._settings)
         self.accept()
