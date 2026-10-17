@@ -463,7 +463,7 @@ class SidebarWidget(QWidget):
         )
         logo_row.addWidget(logo_box)
 
-        logo_title = QLabel("Taskmaster")
+        logo_title = QLabel("BountyHunter")
         logo_title.setStyleSheet(f"font-size: 19px; font-weight: 800; color: {TEXT_PRIMARY}; letter-spacing: 0.3px;")
         logo_row.addWidget(logo_title, 1)
 

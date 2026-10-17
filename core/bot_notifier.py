@@ -95,7 +95,7 @@ def send_telegram_message(
 def test_telegram(bot_token: str, chat_id: str) -> Tuple[bool, str]:
     """Send a friendly test message via Telegram to verify credentials."""
     msg = (
-        "🤖 <b>¡Conexión exitosa con Taskmaster!</b>\n\n"
+        "🤖 <b>¡Conexión exitosa con BountyHunter!</b>\n\n"
         "Tus notificaciones, resúmenes y recordatorios tácticos llegarán por este canal. 🎯✨"
     )
     return send_telegram_message(bot_token, chat_id, msg, parse_mode="HTML")

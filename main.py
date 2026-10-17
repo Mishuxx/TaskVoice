@@ -47,19 +47,19 @@ def main() -> int:
     # Create QApplication
     # ------------------------------------------------------------------
     app = QApplication(sys.argv)
-    app.setApplicationName("Taskmaster")
-    app.setApplicationDisplayName("Taskmaster")
+    app.setApplicationName("BountyHunter")
+    app.setApplicationDisplayName("BountyHunter")
     app.setOrganizationName("Antigravity")
     app.setOrganizationDomain("antigravity.local")
 
     # ------------------------------------------------------------------
     # Single instance lock (prevent multiple instances)
     # ------------------------------------------------------------------
-    server_name = "Taskmaster_SingleInstance_App_Server"
+    server_name = "BountyHunter_SingleInstance_App_Server"
     check_socket = QLocalSocket()
     check_socket.connectToServer(server_name)
     if check_socket.waitForConnected(400):
-        logger.info("Otra instancia de Taskmaster ya está abierta. Activando la ventana existente...")
+        logger.info("Otra instancia de BountyHunter ya está abierta. Activando la ventana existente...")
         check_socket.write(b"ACTIVATE")
         check_socket.waitForBytesWritten(400)
         check_socket.disconnectFromServer()

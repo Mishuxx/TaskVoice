@@ -319,7 +319,7 @@ class NotificationManager:
                 f"• Racha operativa: 🔥 {streak} día(s)\n"
                 f"¡Buen día de operaciones tácticas!"
             )
-            self.notify_event("📋 Resumen Matutino – Taskmaster", message, event_type="morning_summary", timeout=15)
+            self.notify_event("📋 Resumen Matutino – BountyHunter", message, event_type="morning_summary", timeout=15)
         except Exception as exc:
             logger.error("Error generating morning summary: %s", exc)
 
@@ -342,7 +342,7 @@ class NotificationManager:
                 f"• Racha militar activa: 🔥 {streak} días\n"
                 f"¡Excelente disciplina táctica!"
             )
-            self.notify_event("🌙 Balance Nocturno – Taskmaster", message, event_type="evening_summary", timeout=15)
+            self.notify_event("🌙 Balance Nocturno – BountyHunter", message, event_type="evening_summary", timeout=15)
         except Exception as exc:
             logger.error("Error generating evening summary: %s", exc)
 

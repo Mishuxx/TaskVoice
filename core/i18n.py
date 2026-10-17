@@ -13,7 +13,7 @@ _CURRENT_LANG = "es"
 TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "es": {
         # App & Window
-        "app_title": "Taskmaster",
+        "app_title": "BountyHunter",
         
         # Navigation
         "nav_tasks": "Tareas",
@@ -77,7 +77,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Status Bar
         "status_summary": "Total {total} · Activas {active} · Completadas hoy {completed}",
-        "voice_status_ready": "Voz lista · di «Oye Taskmaster»",
+        "voice_status_ready": "Voz lista · di «Oye BountyHunter»",
         "voice_status_off": "Voz inactiva",
         "voice_status_listening": "Escuchando voz…",
 
@@ -141,7 +141,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "max_rank_hint": "¡Has alcanzado el rango máximo supremo del universo!",
 
         # Settings
-        "settings_title": "Ajustes – Taskmaster",
+        "settings_title": "Ajustes – BountyHunter",
         "tab_general": "⚙ General",
         "tab_notifications": "🔔 Notificaciones",
         "tab_bots": "🤖 Telegram",
@@ -178,7 +178,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
     "en": {
         # App & Window
-        "app_title": "Taskmaster",
+        "app_title": "BountyHunter",
 
         # Navigation
         "nav_tasks": "Tasks",
@@ -242,7 +242,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Status Bar
         "status_summary": "Total {total} · Active {active} · Completed today {completed}",
-        "voice_status_ready": "Voice ready · say «Hey Taskmaster»",
+        "voice_status_ready": "Voice ready · say «Hey BountyHunter»",
         "voice_status_off": "Voice inactive",
         "voice_status_listening": "Listening to voice…",
 
@@ -306,7 +306,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "max_rank_hint": "You have reached the supreme maximum rank in the universe!",
 
         # Settings
-        "settings_title": "Settings – Taskmaster",
+        "settings_title": "Settings – BountyHunter",
         "tab_general": "⚙ General",
         "tab_notifications": "🔔 Notifications",
         "tab_bots": "🤖 Telegram",

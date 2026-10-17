@@ -1,6 +1,6 @@
 @echo off
-echo Building Taskmaster...
+echo Building BountyHunter...
 pip install -r requirements.txt
-pyinstaller --onefile --windowed --name Taskmaster --icon=assets/icon.ico main.py
-echo Done! Check dist/Taskmaster.exe
+pyinstaller --onefile --windowed --name BountyHunter --icon=assets/icon.ico main.py
+echo Done! Check dist/BountyHunter.exe
 pause

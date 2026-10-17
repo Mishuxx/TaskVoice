@@ -976,7 +976,7 @@ class MainWindow(QMainWindow):
         self._task_widgets: Dict[int, TaskWidget] = {}
         self._current_tasks: List[Dict[str, Any]] = []
 
-        self.setWindowTitle("Taskmaster")
+        self.setWindowTitle("BountyHunter")
         self.setMinimumSize(1060, 680)
 
         self._build_ui()
@@ -1193,7 +1193,7 @@ class MainWindow(QMainWindow):
             f"QMenu {{ background: {BG_SURFACE}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_SUBTLE}; }}"
             f"QMenu::item:selected {{ background: {ACCENT_VIOLET}; }}"
         )
-        show_action = tray_menu.addAction("Mostrar Taskmaster")
+        show_action = tray_menu.addAction("Mostrar BountyHunter")
         new_task_action = tray_menu.addAction("➕ Nueva Tarea")
         tray_menu.addSeparator()
         quit_action = tray_menu.addAction("Salir")
@@ -1884,7 +1884,7 @@ class MainWindow(QMainWindow):
         event.ignore()
         self.hide()
         self._tray.showMessage(
-            "Taskmaster",
+            "BountyHunter",
             "La aplicación sigue ejecutándose en la bandeja del sistema.",
             QSystemTrayIcon.MessageIcon.Information,
             2000,
