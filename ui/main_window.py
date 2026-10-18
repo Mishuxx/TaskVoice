@@ -52,6 +52,7 @@ from core.recurrence import (
 )
 from core.voice import VoiceManager, extract_task_number
 from core.notifier import NotificationManager
+from core.cloud_sync import CloudSyncManager
 from ui.task_widget import TaskWidget
 from ui.settings_dialog import SettingsDialog
 from ui.dashboard_widget import DashboardWidget
@@ -979,6 +980,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("BountyHunter")
         self.setMinimumSize(1060, 680)
 
+        # Cloud sync manager (Supabase)
+        self._sync_mgr = CloudSyncManager(
+            db=self._db,
+            supabase_url=settings.get("supabase_url", "https://wklsebcypnspferilraz.supabase.co"),
+            supabase_key=settings.get("supabase_key", "sb_publishable_sbEUU0WhieAuQZMhcm1glQ_MpC9bT6Y"),
+            sync_interval_sec=30,
+            parent=self,
+        )
+        self._sync_mgr.sync_started.connect(self._on_sync_started)
+        self._sync_mgr.sync_finished.connect(self._on_sync_finished)
+        self._sync_mgr.data_changed.connect(self._on_cloud_data_changed)
+
         self._build_ui()
         self._setup_tray()
         self._setup_shortcuts()
@@ -993,6 +1006,9 @@ class MainWindow(QMainWindow):
         self._refresh_tasks()
         self._refresh_gamification_hud()
         self._start_status_refresh()
+
+        # Trigger initial cloud sync in background
+        QTimer.singleShot(2000, self._sync_mgr.sync_now)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -1133,12 +1149,25 @@ class MainWindow(QMainWindow):
 
         bar_layout.addStretch()
 
-        # Right: green dot + "Voz lista · di «Oye Taskmaster»"
+        # Cloud sync status indicator
+        self._sync_status_dot = QLabel("☁")
+        self._sync_status_dot.setStyleSheet("color: #38BDF8; font-size: 13px;")
+        bar_layout.addWidget(self._sync_status_dot)
+
+        self._sync_status_lbl = QLabel("Nube lista")
+        self._sync_status_lbl.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-size: 11px; font-weight: 500;"
+        )
+        bar_layout.addWidget(self._sync_status_lbl)
+
+        bar_layout.addSpacing(10)
+
+        # Right: green dot + "Voz lista · di «Oye BountyHunter»"
         self._voice_status_dot = QLabel("●")
         self._voice_status_dot.setStyleSheet("color: #22C55E; font-size: 10px;")
         bar_layout.addWidget(self._voice_status_dot)
 
-        self._voice_status_lbl = QLabel("Voz lista · di «Oye Taskmaster»")
+        self._voice_status_lbl = QLabel("Voz lista · di «Oye BountyHunter»")
         self._voice_status_lbl.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 500;"
         )
@@ -1280,6 +1309,33 @@ class MainWindow(QMainWindow):
         # Trigger voice dictation toggle
         self._quick_add._on_mic_clicked()
 
+    @pyqtSlot()
+    def _on_sync_started(self) -> None:
+        if hasattr(self, "_sync_status_lbl"):
+            self._sync_status_lbl.setText("Sincronizando...")
+            self._sync_status_dot.setStyleSheet("color: #F59E0B; font-size: 13px;")
+
+    @pyqtSlot(bool, str)
+    def _on_sync_finished(self, success: bool, message: str) -> None:
+        if hasattr(self, "_sync_status_lbl"):
+            if success:
+                self._sync_status_lbl.setText("En la nube")
+                self._sync_status_dot.setStyleSheet("color: #10B981; font-size: 13px;")
+            else:
+                self._sync_status_lbl.setText("Sin conexión")
+                self._sync_status_dot.setStyleSheet("color: #64748B; font-size: 13px;")
+
+    @pyqtSlot()
+    def _on_cloud_data_changed(self) -> None:
+        logger.info("Cloud data changed, refreshing views...")
+        self._refresh_categories_sidebar()
+        self._refresh_tasks()
+        self._refresh_gamification_hud()
+        if hasattr(self, "_dashboard_view") and self._dashboard_view:
+            self._dashboard_view.refresh_data()
+        if hasattr(self, "_gamification_view") and self._gamification_view:
+            self._gamification_view.refresh_data()
+
     @pyqtSlot(bool)
     def _on_listening_changed(self, listening: bool) -> None:
         self._quick_add.set_listening(listening)
@@ -1288,7 +1344,7 @@ class MainWindow(QMainWindow):
             self._voice_status_lbl.setText("🎙 Escuchando...")
         else:
             self._voice_status_dot.setStyleSheet("color: #22C55E; font-size: 10px;")
-            self._voice_status_lbl.setText("Voz lista · di «Oye Taskmaster»")
+            self._voice_status_lbl.setText("Voz lista · di «Oye BountyHunter»")
 
     @pyqtSlot(str)
     def _on_voice_error(self, message: str) -> None:
@@ -1547,6 +1603,8 @@ class MainWindow(QMainWindow):
         cat_badge = f" [{cat_name}]" if cat_name else ""
         rec_badge = f" [🔁 {task.get('recurrence_time', '')}]" if is_rec else ""
         self._voice_status_lbl.setText(f'Tarea agregada{cat_badge}{rec_badge}: "{final_title}"')
+        if hasattr(self, "_sync_mgr") and self._sync_mgr:
+            QTimer.singleShot(500, self._sync_mgr.sync_now)
 
     def _on_filter_bar_changed(self, filter_mode: str) -> None:
         self._refresh_tasks()
@@ -1729,12 +1787,17 @@ class MainWindow(QMainWindow):
             )
             self._voice_status_lbl.setText(f"🎯 ¡Misión cumplida: {q_titles}!")
 
+        if hasattr(self, "_sync_mgr") and self._sync_mgr:
+            QTimer.singleShot(300, self._sync_mgr.sync_now)
+
     @pyqtSlot(int)
     def _on_task_uncompleted(self, task_id: int) -> None:
         self._db.uncomplete_task(task_id)
         self._refresh_tasks()
         self._refresh_categories_sidebar()
         self._refresh_gamification_hud()
+        if hasattr(self, "_sync_mgr") and self._sync_mgr:
+            QTimer.singleShot(300, self._sync_mgr.sync_now)
 
     @pyqtSlot(int)
     def _on_task_deleted(self, task_id: int) -> None:
@@ -1749,6 +1812,8 @@ class MainWindow(QMainWindow):
             self._refresh_tasks()
             self._refresh_categories_sidebar()
             self._refresh_gamification_hud()
+            if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                QTimer.singleShot(300, self._sync_mgr.sync_now)
 
     @pyqtSlot(int)
     def _on_task_edit(self, task_id: int) -> None:
@@ -1759,6 +1824,8 @@ class MainWindow(QMainWindow):
                 self._notifier.schedule_reminder(task)
             self._refresh_tasks()
             self._refresh_categories_sidebar()
+            if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                QTimer.singleShot(300, self._sync_mgr.sync_now)
 
     @pyqtSlot(int, bool)
     def _on_subtask_toggled(self, subtask_id: int, completed: bool) -> None:
