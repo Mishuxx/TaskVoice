@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BountyHunter</string>
+    <string name="title_activity_main">BountyHunter</string>
+    <string name="package_name">com.antigravity.bountyhunter</string>
+    <string name="custom_url_scheme">com.antigravity.bountyhunter</string>
+</resources>
