@@ -180,12 +180,13 @@ class DatabaseManager:
         with self._conn:
             self._conn.executescript(sql)
 
-        # Migration: ensure new recurrence columns exist for existing databases
+        # Migration: ensure new columns exist for existing databases
         migration_cols = [
             ("is_recurring", "INTEGER NOT NULL DEFAULT 0"),
             ("recurrence_days", "TEXT DEFAULT ''"),
             ("recurrence_time", "TEXT DEFAULT ''"),
             ("recurrence_type", "TEXT DEFAULT ''"),
+            ("updated_at", "TEXT DEFAULT ''"),
         ]
         with self._conn:
             for col_name, col_type in migration_cols:
@@ -387,12 +388,12 @@ class DatabaseManager:
                 """
                 INSERT INTO tasks
                     (title, description, category_id, due_date, priority, progress, completed,
-                     is_recurring, recurrence_days, recurrence_time, recurrence_type, created_at)
-                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
+                     is_recurring, recurrence_days, recurrence_time, recurrence_type, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     title, description, category_id, due_date, priority,
-                    1 if is_recurring else 0, r_days_str, r_time_str, r_type_str, now
+                    1 if is_recurring else 0, r_days_str, r_time_str, r_type_str, now, now
                 )
             )
             return cur.lastrowid
@@ -427,12 +428,13 @@ class DatabaseManager:
         if new_is_rec and not new_due:
             new_due = calculate_next_occurrence(new_r_days, new_r_time).isoformat(sep=" ", timespec="seconds")
 
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
         with self._conn:
             self._conn.execute(
                 """
                 UPDATE tasks
                 SET title=?, description=?, category_id=?, due_date=?, priority=?,
-                    is_recurring=?, recurrence_days=?, recurrence_time=?, recurrence_type=?
+                    is_recurring=?, recurrence_days=?, recurrence_time=?, recurrence_type=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -445,6 +447,7 @@ class DatabaseManager:
                     new_r_days,
                     new_r_time,
                     new_r_type,
+                    now,
                     task_id,
                 )
             )
@@ -499,10 +502,10 @@ class DatabaseManager:
                 self._conn.execute(
                     """
                     UPDATE tasks
-                    SET completed=0, progress=0, completed_at=NULL, due_date=?
+                    SET completed=0, progress=0, completed_at=NULL, due_date=?, updated_at=?
                     WHERE id=?
                     """,
-                    (next_due, task_id)
+                    (next_due, now, task_id)
                 )
                 self._conn.execute(
                     "UPDATE subtasks SET completed=0 WHERE task_id=?",
@@ -517,8 +520,8 @@ class DatabaseManager:
         else:
             with self._conn:
                 self._conn.execute(
-                    "UPDATE tasks SET completed=1, progress=100, completed_at=? WHERE id=?",
-                    (now, task_id)
+                    "UPDATE tasks SET completed=1, progress=100, completed_at=?, updated_at=? WHERE id=?",
+                    (now, now, task_id)
                 )
             return {
                 "success": True,
@@ -528,10 +531,11 @@ class DatabaseManager:
 
     def uncomplete_task(self, task_id: int) -> None:
         """Mark a task as not completed."""
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
         with self._conn:
             self._conn.execute(
-                "UPDATE tasks SET completed=0, completed_at=NULL WHERE id=?",
-                (task_id,)
+                "UPDATE tasks SET completed=0, completed_at=NULL, updated_at=? WHERE id=?",
+                (now, task_id)
             )
         self._recalc_progress(task_id)
 

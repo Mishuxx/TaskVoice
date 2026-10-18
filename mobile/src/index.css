@@ -16,11 +16,11 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 4px;
+/* Hide scrollbar for category slider */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

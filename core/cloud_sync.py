@@ -181,14 +181,15 @@ class CloudSyncManager(QObject):
             for c in rc.json():
                 cat_map[c["name"]] = c["id"]
 
-        # Push local tasks that are missing or newer
+        # Push local tasks that are missing or modified
         for lt in local_tasks:
             tid = lt["id"]
-            if tid not in remote_by_id:
-                # Prepare payload
-                cat_name = local_cats.get(lt.get("category_id"))
-                remote_cat_id = cat_map.get(cat_name) if cat_name else None
+            cat_name = local_cats.get(lt.get("category_id"))
+            remote_cat_id = cat_map.get(cat_name) if cat_name else None
+            is_comp = bool(lt.get("completed", 0))
 
+            if tid not in remote_by_id:
+                # Insert missing in cloud
                 payload = {
                     "id": tid,
                     "title": lt["title"],
@@ -197,35 +198,54 @@ class CloudSyncManager(QObject):
                     "due_date": lt.get("due_date", "") or "",
                     "priority": lt.get("priority", 2),
                     "progress": lt.get("progress", 0),
-                    "completed": bool(lt.get("completed", 0)),
+                    "completed": is_comp,
                     "is_recurring": bool(lt.get("is_recurring", 0)),
                     "recurrence_days": lt.get("recurrence_days", "") or "",
                     "recurrence_time": lt.get("recurrence_time", "") or "",
                     "recurrence_type": lt.get("recurrence_type", "") or "",
                     "created_at": lt.get("created_at") or iso_now(),
                     "completed_at": lt.get("completed_at"),
-                    "updated_at": iso_now(),
+                    "updated_at": lt.get("updated_at") or iso_now(),
                     "is_deleted": False,
                 }
-                # Upsert into Supabase
                 push_headers = dict(self._headers)
                 push_headers["Prefer"] = "resolution=merge-duplicates"
-                pr = requests.post(url, headers=push_headers, json=[payload], timeout=10)
-                if pr.status_code not in (200, 201):
-                    logger.warning("Failed to push task %s: %s", tid, pr.text)
+                requests.post(url, headers=push_headers, json=[payload], timeout=10)
+            else:
+                # Task exists on both sides: compare status
+                rt = remote_by_id[tid]
+                rem_comp = bool(rt.get("completed", False))
+                rem_updated = rt.get("updated_at") or ""
+                loc_updated = lt.get("updated_at") or ""
+
+                if is_comp != rem_comp:
+                    # Whichever was updated more recently wins
+                    if loc_updated >= rem_updated:
+                        # Push local status to remote
+                        requests.patch(
+                            f"{url}?id=eq.{tid}",
+                            headers=self._headers,
+                            json={"completed": is_comp, "completed_at": lt.get("completed_at"), "updated_at": iso_now()},
+                            timeout=10,
+                        )
+                    else:
+                        # Pull remote status to local
+                        with self._db._conn:
+                            self._db._conn.execute(
+                                "UPDATE tasks SET completed=?, completed_at=?, updated_at=? WHERE id=?",
+                                (1 if rem_comp else 0, rt.get("completed_at"), rem_updated, tid)
+                            )
+                        has_changes = True
 
         # Pull remote tasks into local SQLite
         for rt in remote_tasks:
             rid = rt["id"]
             if rid not in local_by_id:
                 # Create task locally
-                # Resolve local category id
                 loc_cat_id = None
                 if rt.get("category_id"):
-                    # Find category name
                     for name, cid in cat_map.items():
                         if cid == rt["category_id"]:
-                            # Find local category id
                             for l_id, l_name in local_cats.items():
                                 if l_name == name:
                                     loc_cat_id = l_id
@@ -239,8 +259,8 @@ class CloudSyncManager(QObject):
                         INSERT OR REPLACE INTO tasks (
                             id, title, description, category_id, due_date, priority,
                             progress, completed, is_recurring, recurrence_days,
-                            recurrence_time, recurrence_type, created_at, completed_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            recurrence_time, recurrence_type, created_at, completed_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             rid,
@@ -257,6 +277,7 @@ class CloudSyncManager(QObject):
                             rt.get("recurrence_type", "") or "",
                             rt.get("created_at") or iso_now(),
                             rt.get("completed_at"),
+                            rt.get("updated_at") or iso_now(),
                         )
                     )
                 has_changes = True
