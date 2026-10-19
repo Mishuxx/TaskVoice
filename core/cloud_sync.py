@@ -5,9 +5,10 @@ Real-time / background bidirectional synchronization between local SQLite
 and Supabase cloud backend for BountyHunter.
 
 Features:
-- Thread-safe background syncing using QThread / worker.
+- Thread-safe background syncing using QTimer and requests.
 - Syncs categories, tasks, subtasks and gamification profile.
-- Offline-first: if internet is absent, operations queue and run when back online.
+- Robust epoch-based timestamp comparison (handles UTC vs local, ISO formats).
+- Bidirectional deletion handling with is_deleted flag.
 - Emits Qt signals when remote data updates are merged.
 """
 
@@ -15,9 +16,9 @@ import time
 import json
 import logging
 import requests
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime, timezone
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,33 @@ DEFAULT_SUPABASE_KEY = "sb_publishable_sbEUU0WhieAuQZMhcm1glQ_MpC9bT6Y"
 
 
 def iso_now() -> str:
-    """Return ISO 8601 UTC timestamp."""
+    """Return standard ISO 8601 UTC timestamp."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_epoch(ts: Optional[Union[str, datetime, int, float]]) -> float:
+    """Parse various timestamp formats to POSIX epoch timestamp (float)."""
+    if not ts:
+        return 0.0
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    s = str(ts).strip()
+    if not s:
+        return 0.0
+    try:
+        s_clean = s.replace(" ", "T")
+        if s_clean.endswith("Z"):
+            s_clean = s_clean[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s_clean)
+        if dt.tzinfo is None:
+            dt = dt.astimezone()
+        return dt.timestamp()
+    except Exception:
+        try:
+            dt = datetime.strptime(s[:10], "%Y-%m-%d")
+            return dt.astimezone().timestamp()
+        except Exception:
+            return 0.0
 
 
 class CloudSyncManager(QObject):
@@ -43,7 +69,7 @@ class CloudSyncManager(QObject):
         db,
         supabase_url: str = DEFAULT_SUPABASE_URL,
         supabase_key: str = DEFAULT_SUPABASE_KEY,
-        sync_interval_sec: int = 30,
+        sync_interval_sec: int = 15,
         parent=None,
     ):
         super().__init__(parent)
@@ -105,6 +131,19 @@ class CloudSyncManager(QObject):
         finally:
             self._is_syncing = False
 
+    def notify_task_deleted(self, task_id: int) -> None:
+        """Immediately flag a task as deleted in Supabase."""
+        try:
+            url = f"{self._supabase_url}/rest/v1/bh_tasks?id=eq.{task_id}"
+            requests.patch(
+                url,
+                headers=self._headers,
+                json={"is_deleted": True, "updated_at": iso_now()},
+                timeout=5,
+            )
+        except Exception as exc:
+            logger.warning("Could not flag deleted task %s in cloud: %s", task_id, exc)
+
     # ------------------------------------------------------------------
     # Internal Sync Logic
     # ------------------------------------------------------------------
@@ -121,7 +160,11 @@ class CloudSyncManager(QObject):
         if self._sync_tasks():
             has_changes = True
 
-        # 3. Sync Gamification
+        # 3. Sync Subtasks
+        if self._sync_subtasks():
+            has_changes = True
+
+        # 4. Sync Gamification
         if self._sync_gamification():
             has_changes = True
 
@@ -145,7 +188,7 @@ class CloudSyncManager(QObject):
         for name, cat in local_cats.items():
             if name not in remote_cats:
                 to_push.append({"name": name, "color": cat["color"]})
-        
+
         if to_push:
             pr = requests.post(url, headers=self._headers, json=to_push, timeout=10)
             pr.raise_for_status()
@@ -163,8 +206,8 @@ class CloudSyncManager(QObject):
         url = f"{self._supabase_url}/rest/v1/bh_tasks"
         has_changes = False
 
-        # Get remote tasks
-        r = requests.get(f"{url}?select=*&is_deleted=eq.false", headers=self._headers, timeout=10)
+        # Get all remote tasks
+        r = requests.get(f"{url}?select=*", headers=self._headers, timeout=10)
         r.raise_for_status()
         remote_tasks = r.json()
         remote_by_id = {t["id"]: t for t in remote_tasks}
@@ -181,9 +224,17 @@ class CloudSyncManager(QObject):
             for c in rc.json():
                 cat_map[c["name"]] = c["id"]
 
-        # Push local tasks that are missing or modified
-        for lt in local_tasks:
-            tid = lt["id"]
+        # 1. Process remote deletions locally
+        for rt in remote_tasks:
+            rid = rt["id"]
+            if rt.get("is_deleted", False):
+                if rid in local_by_id:
+                    self._db.delete_task(rid)
+                    del local_by_id[rid]
+                    has_changes = True
+
+        # 2. Compare local tasks with remote
+        for tid, lt in list(local_by_id.items()):
             cat_name = local_cats.get(lt.get("category_id"))
             remote_cat_id = cat_map.get(cat_name) if cat_name else None
             is_comp = bool(lt.get("completed", 0))
@@ -212,36 +263,79 @@ class CloudSyncManager(QObject):
                 push_headers["Prefer"] = "resolution=merge-duplicates"
                 requests.post(url, headers=push_headers, json=[payload], timeout=10)
             else:
-                # Task exists on both sides: compare status
                 rt = remote_by_id[tid]
+                if rt.get("is_deleted"):
+                    continue
+
                 rem_comp = bool(rt.get("completed", False))
                 rem_updated = rt.get("updated_at") or ""
                 loc_updated = lt.get("updated_at") or ""
 
-                if is_comp != rem_comp:
-                    # Whichever was updated more recently wins
-                    if loc_updated >= rem_updated:
-                        # Push local status to remote
-                        requests.patch(
-                            f"{url}?id=eq.{tid}",
-                            headers=self._headers,
-                            json={"completed": is_comp, "completed_at": lt.get("completed_at"), "updated_at": iso_now()},
-                            timeout=10,
-                        )
+                loc_epoch = parse_epoch(loc_updated)
+                rem_epoch = parse_epoch(rem_updated)
+
+                differs = (
+                    is_comp != rem_comp
+                    or lt.get("title") != rt.get("title")
+                    or (lt.get("due_date") or "") != (rt.get("due_date") or "")
+                    or lt.get("priority", 2) != rt.get("priority", 2)
+                    or (lt.get("description") or "") != (rt.get("description") or "")
+                )
+
+                if differs:
+                    if loc_epoch >= rem_epoch:
+                        # Push local state to cloud
+                        payload = {
+                            "title": lt["title"],
+                            "description": lt.get("description", "") or "",
+                            "category_id": remote_cat_id,
+                            "due_date": lt.get("due_date", "") or "",
+                            "priority": lt.get("priority", 2),
+                            "progress": lt.get("progress", 0),
+                            "completed": is_comp,
+                            "is_recurring": bool(lt.get("is_recurring", 0)),
+                            "recurrence_days": lt.get("recurrence_days", "") or "",
+                            "recurrence_time": lt.get("recurrence_time", "") or "",
+                            "recurrence_type": lt.get("recurrence_type", "") or "",
+                            "completed_at": lt.get("completed_at"),
+                            "updated_at": loc_updated or iso_now(),
+                            "is_deleted": False,
+                        }
+                        requests.patch(f"{url}?id=eq.{tid}", headers=self._headers, json=payload, timeout=10)
                     else:
-                        # Pull remote status to local
+                        # Pull cloud state to local SQLite
                         with self._db._conn:
                             self._db._conn.execute(
-                                "UPDATE tasks SET completed=?, completed_at=?, updated_at=? WHERE id=?",
-                                (1 if rem_comp else 0, rt.get("completed_at"), rem_updated, tid)
+                                """
+                                UPDATE tasks SET
+                                    title=?, description=?, category_id=?, due_date=?, priority=?,
+                                    progress=?, completed=?, is_recurring=?, recurrence_days=?,
+                                    recurrence_time=?, recurrence_type=?, completed_at=?, updated_at=?
+                                WHERE id=?
+                                """,
+                                (
+                                    rt["title"],
+                                    rt.get("description", "") or "",
+                                    loc_cat_id,
+                                    rt.get("due_date") or None,
+                                    rt.get("priority", 2),
+                                    rt.get("progress", 0),
+                                    1 if rem_comp else 0,
+                                    1 if rt.get("is_recurring") else 0,
+                                    rt.get("recurrence_days", "") or "",
+                                    rt.get("recurrence_time", "") or "",
+                                    rt.get("recurrence_type", "") or "",
+                                    rt.get("completed_at"),
+                                    rem_updated,
+                                    tid,
+                                )
                             )
                         has_changes = True
 
-        # Pull remote tasks into local SQLite
+        # 3. Pull newly added remote tasks to local SQLite
         for rt in remote_tasks:
             rid = rt["id"]
-            if rid not in local_by_id:
-                # Create task locally
+            if rid not in local_by_id and not rt.get("is_deleted", False):
                 loc_cat_id = None
                 if rt.get("category_id"):
                     for name, cid in cat_map.items():
@@ -281,6 +375,57 @@ class CloudSyncManager(QObject):
                         )
                     )
                 has_changes = True
+
+        return has_changes
+
+    def _sync_subtasks(self) -> bool:
+        """Push and pull subtasks between local SQLite and Supabase."""
+        url = f"{self._supabase_url}/rest/v1/bh_subtasks"
+        has_changes = False
+
+        try:
+            r = requests.get(f"{url}?select=*", headers=self._headers, timeout=10)
+            if r.status_code != 200:
+                return False
+            remote_subs = {s["id"]: s for s in r.json()}
+
+            cur = self._db._cursor()
+            cur.execute("SELECT id, task_id, title, completed FROM subtasks")
+            local_subs = {row[0]: {"id": row[0], "task_id": row[1], "title": row[2], "completed": bool(row[3])} for row in cur.fetchall()}
+
+            to_push = []
+            for sid, sub in local_subs.items():
+                if sid not in remote_subs:
+                    to_push.append(sub)
+                elif sub["completed"] != remote_subs[sid].get("completed", False):
+                    requests.patch(
+                        f"{url}?id=eq.{sid}",
+                        headers=self._headers,
+                        json={"completed": sub["completed"]},
+                        timeout=5,
+                    )
+            if to_push:
+                push_headers = dict(self._headers)
+                push_headers["Prefer"] = "resolution=merge-duplicates"
+                requests.post(url, headers=push_headers, json=to_push, timeout=10)
+
+            for sid, rsub in remote_subs.items():
+                if sid not in local_subs:
+                    with self._db._conn:
+                        self._db._conn.execute(
+                            "INSERT OR IGNORE INTO subtasks (id, task_id, title, completed) VALUES (?, ?, ?, ?)",
+                            (rsub["id"], rsub["task_id"], rsub["title"], 1 if rsub["completed"] else 0)
+                        )
+                    has_changes = True
+                elif rsub.get("completed", False) != local_subs[sid]["completed"]:
+                    with self._db._conn:
+                        self._db._conn.execute(
+                            "UPDATE subtasks SET completed=? WHERE id=?",
+                            (1 if rsub.get("completed") else 0, sid)
+                        )
+                    has_changes = True
+        except Exception as exc:
+            logger.warning("Subtask sync error: %s", exc)
 
         return has_changes
 

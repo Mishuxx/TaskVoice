@@ -1813,6 +1813,8 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self._notifier.cancel_reminder(task_id)
             self._db.delete_task(task_id)
+            if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                self._sync_mgr.notify_task_deleted(task_id)
             self._refresh_tasks()
             self._refresh_categories_sidebar()
             self._refresh_gamification_hud()

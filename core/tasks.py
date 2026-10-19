@@ -8,9 +8,13 @@ Handles all CRUD operations for tasks, subtasks, categories and task history.
 import sqlite3
 import os
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
+
+def utc_iso_now() -> str:
+    """Return standard ISO 8601 UTC timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 from core.categorizer import deduce_category_name
 from core.recurrence import (
@@ -382,7 +386,7 @@ class DatabaseManager:
             next_dt = calculate_next_occurrence(recurrence_days, r_time_str)
             due_date = next_dt.isoformat(sep=" ", timespec="seconds")
 
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        now = utc_iso_now()
         with self._conn:
             cur = self._conn.execute(
                 """
@@ -428,7 +432,7 @@ class DatabaseManager:
         if new_is_rec and not new_due:
             new_due = calculate_next_occurrence(new_r_days, new_r_time).isoformat(sep=" ", timespec="seconds")
 
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        now = utc_iso_now()
         with self._conn:
             self._conn.execute(
                 """
@@ -463,7 +467,7 @@ class DatabaseManager:
         if not task:
             return {"success": False}
 
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        now = utc_iso_now()
 
         # Archive into task_history
         with self._conn:
@@ -531,7 +535,7 @@ class DatabaseManager:
 
     def uncomplete_task(self, task_id: int) -> None:
         """Mark a task as not completed."""
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        now = utc_iso_now()
         with self._conn:
             self._conn.execute(
                 "UPDATE tasks SET completed=0, completed_at=NULL, updated_at=? WHERE id=?",
@@ -554,7 +558,7 @@ class DatabaseManager:
         rows = [dict(r) for r in cur.fetchall()]
         if not rows:
             return 0
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        now = utc_iso_now()
         with self._conn:
             self._conn.executemany(
                 """
@@ -679,7 +683,7 @@ class DatabaseManager:
             cur = self._cursor()
             cur.execute("SELECT * FROM tasks WHERE completed=1")
             done_tasks = cur.fetchall()
-            now = datetime.now().isoformat(sep=" ", timespec="seconds")
+            now = utc_iso_now()
             for t in done_tasks:
                 self._conn.execute(
                     """
