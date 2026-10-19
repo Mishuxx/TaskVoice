@@ -1393,6 +1393,8 @@ class MainWindow(QMainWindow):
                 cat_badge = f" [{cat_name}]" if cat_name else ""
                 rec_badge = f" [🔁 {task.get('recurrence_time', '')}]" if is_recurring else ""
                 self._voice_status_lbl.setText(f'🎙 Tarea añadida{cat_badge}{rec_badge} [{prio_name}]: "{title}"')
+                if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                    QTimer.singleShot(300, self._sync_mgr.sync_now)
         elif cmd_type == "complete_task":
             target_num = params.get("number")
             if target_num is None:
@@ -1748,6 +1750,8 @@ class MainWindow(QMainWindow):
             self._refresh_tasks()
             self._refresh_categories_sidebar()
             self._refresh_gamification_hud()
+            if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                QTimer.singleShot(300, self._sync_mgr.sync_now)
 
     @pyqtSlot(int)
     def _on_task_completed(self, task_id: int) -> None:
