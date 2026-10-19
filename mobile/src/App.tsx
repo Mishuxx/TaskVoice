@@ -1,13 +1,77 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { registerPlugin, Capacitor } from '@capacitor/core';
 import { supabase, Task, Category, GamificationProfile } from './supabase';
 import { 
   CheckCircle2, Circle, Mic, MicOff, Plus, Flame, 
   Trophy, Calendar, Clock, RefreshCw, Trash2, Tag, 
   Sparkles, Check, ChevronRight, BarChart3, Swords, 
   ListTodo, ChevronDown, Edit3, X, AlertCircle, Award,
-  Shield, Zap, Star
+  Shield, Zap, Star, Radio
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+
+interface VoiceInputPluginType {
+  isAvailable(): Promise<{ available: boolean }>;
+  promptSpeech(options?: { language?: string; prompt?: string }): Promise<{ success: boolean; text: string; matches?: string[] }>;
+}
+
+const VoiceInput = registerPlugin<VoiceInputPluginType>('VoiceInput');
+
+function parseVoiceCommand(text: string, categoriesList: Category[]): { title: string; categoryId?: number; priority: number } {
+  let clean = text.trim();
+  const prefixes = [
+    /^a[ñn]adir tarea (de |para )?/i,
+    /^nueva tarea (de |para )?/i,
+    /^crear tarea (de |para )?/i,
+    /^agregar tarea (de |para )?/i,
+    /^anotar (de |para )?/i,
+    /^grabar tarea (de |para )?/i,
+    /^tarea (de |para )?/i,
+  ];
+  for (const p of prefixes) {
+    if (p.test(clean)) {
+      clean = clean.replace(p, '');
+      break;
+    }
+  }
+
+  if (clean.length > 0) {
+    clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  let priority = 2;
+  if (/urgente|alta prioridad|prioridad alta|inmediat[oa]/i.test(clean)) {
+    priority = 3;
+    clean = clean.replace(/urgente|alta prioridad|prioridad alta|inmediat[oa]/gi, '').trim();
+  } else if (/baja prioridad|prioridad baja/i.test(clean)) {
+    priority = 1;
+    clean = clean.replace(/baja prioridad|prioridad baja/gi, '').trim();
+  }
+
+  let categoryId: number | undefined = undefined;
+  const lower = clean.toLowerCase();
+  for (const cat of categoriesList) {
+    const cName = cat.name.toLowerCase();
+    if (cName.includes('salud') && /salud|m[eé]dic|ejercicio|espalda|terapia|gimnasio|agua|pastilla|remedio|doctor/i.test(lower)) {
+      categoryId = cat.id;
+      break;
+    }
+    if (cName.includes('trabaj') && /trabajo|reuni[oó]n|cliente|informe|azure|aws|skillea|diego|proyecto|correo|reporte/i.test(lower)) {
+      categoryId = cat.id;
+      break;
+    }
+    if (cName.includes('estudio') && /estudio|curso|libro|aprender|nota|certificaci[oó]n|examen|tarea|clase/i.test(lower)) {
+      categoryId = cat.id;
+      break;
+    }
+    if (cName.includes('personal') && /personal|comprar|casa|gato|perro|comida|nevera|basura|llave|limpieza|mercado/i.test(lower)) {
+      categoryId = cat.id;
+      break;
+    }
+  }
+
+  return { title: clean, categoryId, priority };
+}
 
 interface Subtask {
   id: number;
@@ -60,9 +124,17 @@ export function App() {
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [newTitle, setNewTitle] = useState('');
-  const [isListening, setIsListening] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [newSubtaskInputs, setNewSubtaskInputs] = useState<Record<number, string>>({});
+
+  // Tactical Voice Command Modal States
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [voiceState, setVoiceState] = useState<'idle' | 'listening' | 'recognized' | 'error'>('idle');
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceParsedTitle, setVoiceParsedTitle] = useState('');
+  const [voiceParsedCategory, setVoiceParsedCategory] = useState<number | null>(null);
+  const [voiceParsedPriority, setVoiceParsedPriority] = useState<number>(2);
+  const [voiceErrorMessage, setVoiceErrorMessage] = useState('');
 
   // Complex Task Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -267,28 +339,143 @@ export function App() {
     }
   }
 
-  // Voice dictation
-  function toggleVoice() {
+  // Tactical Voice Recognition (Native Android + Web Speech Fallback)
+  async function startVoiceRecognition() {
+    setVoiceModalOpen(true);
+    setVoiceState('listening');
+    setVoiceTranscript('');
+    setVoiceParsedTitle('');
+    setVoiceErrorMessage('');
+
+    // 1. Android Capacitor Native Recognition (Google Speech Engine)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await VoiceInput.promptSpeech({
+          language: 'es-ES',
+          prompt: 'Comando de voz: Di tu tarea...',
+        });
+
+        if (res && res.success && res.text && res.text.trim()) {
+          const raw = res.text.trim();
+          setVoiceTranscript(raw);
+          const parsed = parseVoiceCommand(raw, categories);
+          setVoiceParsedTitle(parsed.title);
+          setVoiceParsedCategory(parsed.categoryId ?? null);
+          setVoiceParsedPriority(parsed.priority);
+          setVoiceState('recognized');
+        } else {
+          setVoiceState('error');
+          setVoiceErrorMessage('No se detectó audio o el comando fue cancelado.');
+        }
+      } catch (err: any) {
+        console.error('Native voice error:', err);
+        setVoiceState('error');
+        setVoiceErrorMessage('Error de captura vocal: ' + (err?.message || 'Micrófono no disponible'));
+      }
+      return;
+    }
+
+    // 2. Browser Web Speech API Fallback
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("El reconocimiento de voz por hardware está activo en la app instalada.");
+      setVoiceState('error');
+      setVoiceErrorMessage('Reconocimiento web no disponible en este navegador. Utiliza la app instalada en tu móvil.');
       return;
     }
-    if (isListening) {
-      setIsListening(false);
-      return;
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.lang = 'es-ES';
+      rec.continuous = false;
+      rec.interimResults = true;
+
+      rec.onstart = () => {
+        setVoiceState('listening');
+      };
+
+      rec.onresult = (evt: any) => {
+        let transcript = '';
+        for (let i = evt.resultIndex; i < evt.results.length; ++i) {
+          transcript += evt.results[i][0].transcript;
+        }
+        if (transcript) {
+          setVoiceTranscript(transcript);
+        }
+      };
+
+      rec.onerror = (evt: any) => {
+        console.error('Speech recognition error:', evt);
+        setVoiceState('error');
+        setVoiceErrorMessage('Error al capturar voz (' + (evt.error || 'micrófono') + ').');
+      };
+
+      rec.onend = () => {
+        setVoiceTranscript(prev => {
+          if (prev.trim()) {
+            const parsed = parseVoiceCommand(prev.trim(), categories);
+            setVoiceParsedTitle(parsed.title);
+            setVoiceParsedCategory(parsed.categoryId ?? null);
+            setVoiceParsedPriority(parsed.priority);
+            setVoiceState('recognized');
+          } else {
+            setVoiceState('error');
+            setVoiceErrorMessage('No se detectó ningún comando vocal.');
+          }
+          return prev;
+        });
+      };
+
+      rec.start();
+    } catch (err: any) {
+      console.error('Speech start exception:', err);
+      setVoiceState('error');
+      setVoiceErrorMessage('No se pudo activar el micrófono.');
     }
-    const rec = new SpeechRecognition();
-    rec.lang = 'es-ES';
-    rec.continuous = false;
-    rec.onstart = () => setIsListening(true);
-    rec.onend = () => setIsListening(false);
-    rec.onerror = () => setIsListening(false);
-    rec.onresult = (evt: any) => {
-      const text = evt.results[0][0].transcript;
-      if (text) setNewTitle(text);
+  }
+
+  // Confirm and persist voice task
+  async function confirmVoiceTask() {
+    const titleToCreate = voiceParsedTitle.trim() || voiceTranscript.trim();
+    if (!titleToCreate) return;
+
+    const catId = voiceParsedCategory !== null ? voiceParsedCategory : (categories[0]?.id || null);
+    const prio = voiceParsedPriority || 2;
+
+    const newTask = {
+      title: titleToCreate,
+      description: 'Dictado por comando vocal',
+      category_id: catId,
+      due_date: '',
+      priority: prio,
+      progress: 0,
+      completed: false,
+      is_recurring: false,
+      recurrence_days: '',
+      recurrence_time: '',
+      recurrence_type: '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_deleted: false,
     };
-    rec.start();
+
+    setVoiceModalOpen(false);
+
+    // Optimistic UI insert
+    const tempId = Date.now();
+    setTasks(prev => [{ ...newTask, id: tempId }, ...prev]);
+
+    // Give visual celebration + XP
+    confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
+    await addXP(10);
+
+    // Save to Supabase
+    const { data, error } = await supabase.from('bh_tasks').insert([newTask]).select();
+    if (error) {
+      console.error('Error creating voice task:', error);
+      loadTasks();
+    } else if (data && data[0]) {
+      setTasks(prev => prev.map(t => t.id === tempId ? data[0] : t));
+    }
   }
 
   // Delete task
@@ -459,6 +646,13 @@ export function App() {
                 <span>🔥 Alta</span>
               </button>
               <button
+                onClick={() => startVoiceRecognition()}
+                className="p-1.5 rounded-xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/40 text-xs font-bold hover:bg-cyan-500 hover:text-white transition flex items-center gap-1 shadow-sm"
+                title="Dictar por voz"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+              <button
                 onClick={() => setModalOpen(true)}
                 className="p-1.5 rounded-xl bg-accent-violet/20 text-accent-violet border border-accent-violet/40 text-xs font-bold hover:bg-accent-violet hover:text-white transition"
                 title="Crear tarea compleja"
@@ -539,7 +733,15 @@ export function App() {
                   🎯
                 </div>
                 <p className="font-semibold text-slate-300">¡Sector despejado Comandante!</p>
-                <p className="text-xs max-w-xs text-slate-500">Agrega una tarea o pulsa el micrófono para dictarla.</p>
+                <p className="text-xs max-w-xs text-slate-500">Agrega una tarea o pulsa el botón de voz para dictarla.</p>
+                <button
+                  type="button"
+                  onClick={() => startVoiceRecognition()}
+                  className="mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600/30 to-cyan-500/30 border border-cyan-400/50 text-cyan-300 font-bold text-xs flex items-center gap-2 hover:brightness-125 transition active:scale-95 shadow-md shadow-violet-950/50"
+                >
+                  <Mic className="w-4 h-4 text-cyan-400 animate-pulse" />
+                  <span>Dictar Tarea por Voz</span>
+                </button>
               </div>
             )}
 
@@ -566,36 +768,41 @@ export function App() {
             )}
           </div>
 
-          {/* Quick-add Input Bar */}
-          <div className="p-3 bg-bg-sidebar/95 backdrop-blur border-t border-border-subtle">
-            <form onSubmit={handleQuickAdd} className="flex items-center space-x-2">
-              <div className="relative flex-1">
+          {/* Quick-add & Voice Command Bar */}
+          <div className="p-3 bg-bg-sidebar/95 backdrop-blur border-t border-border-subtle shrink-0">
+            <div className="flex items-center gap-2">
+              {/* Dedicated prominent Voice Dictation Button */}
+              <button
+                type="button"
+                onClick={() => startVoiceRecognition()}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-violet-600/30 via-purple-700/25 to-cyan-500/25 border border-violet-500/60 hover:border-cyan-400 text-white text-xs font-black tracking-wider uppercase transition active:scale-95 shadow-md shadow-violet-950/60 group shrink-0"
+                title="Dictar tarea por voz"
+              >
+                <span className="relative flex h-3.5 w-3.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <Mic className="relative inline-flex w-3.5 h-3.5 text-cyan-300 group-hover:scale-110 transition-transform" />
+                </span>
+                <span className="text-[11px] font-extrabold text-cyan-200">VOZ</span>
+              </button>
+
+              {/* Text Quick-add input */}
+              <form onSubmit={handleQuickAdd} className="flex-1 flex items-center gap-1.5">
                 <input
                   type="text"
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
-                  placeholder="Agregar tarea… (ej. Revisar correos a las 10:00)"
-                  className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-bg-surface border border-border-subtle focus:border-accent-violet focus:outline-none text-xs placeholder-slate-500 text-white"
+                  placeholder="Escribir tarea... (o pulsa VOZ)"
+                  className="flex-1 pl-3 pr-3 py-2.5 rounded-xl bg-bg-surface border border-border-subtle focus:border-accent-violet focus:outline-none text-xs placeholder-slate-500 text-white min-w-0"
                 />
                 <button
-                  type="button"
-                  onClick={toggleVoice}
-                  className={`absolute right-2 top-2 p-1 rounded-lg transition active:scale-90 ${
-                    isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-white'
-                  }`}
+                  type="submit"
+                  disabled={!newTitle.trim()}
+                  className="px-3 py-2.5 rounded-xl bg-accent-violet text-white font-extrabold text-xs hover:bg-purple-600 disabled:opacity-30 transition active:scale-95 shadow-md shadow-purple-900/30 shrink-0"
                 >
-                  {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  <Plus className="w-4 h-4" />
                 </button>
-              </div>
-
-              <button
-                type="submit"
-                disabled={!newTitle.trim()}
-                className="px-3.5 py-2.5 rounded-xl bg-accent-violet text-white font-bold text-xs hover:bg-purple-600 disabled:opacity-40 transition active:scale-95 shadow-md shadow-purple-900/30"
-              >
-                Agregar
-              </button>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
       )}
@@ -855,6 +1062,198 @@ export function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. TACTICAL VOICE COMMAND HUD MODAL */}
+      {voiceModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-950 border-2 border-violet-500/60 p-5 shadow-2xl shadow-violet-950/80 space-y-4 relative overflow-hidden">
+            {/* Ambient StarCraft HUD glow */}
+            <div className="absolute -top-16 -right-16 w-36 h-36 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-16 -left-16 w-36 h-36 bg-violet-500/10 rounded-full blur-2xl pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-violet-500/20 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 rounded-xl bg-violet-950/80 border border-violet-500/50 text-cyan-400">
+                  <Mic className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black tracking-widest uppercase text-white flex items-center gap-1.5">
+                    <span>COMANDO POR VOZ</span>
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono">BountyHunter Vocal HUD v1.2</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setVoiceModalOpen(false)} 
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-900 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* State Visualizer: Listening */}
+            {voiceState === 'listening' && (
+              <div className="py-6 flex flex-col items-center justify-center space-y-4">
+                {/* Holographic Radar Waves */}
+                <div className="relative flex items-center justify-center w-24 h-24">
+                  <div className="absolute inset-0 rounded-full border-2 border-cyan-400/20 animate-ping" />
+                  <div className="absolute inset-2 rounded-full border border-violet-400/40 animate-pulse" />
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-violet-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                    <Mic className="w-7 h-7 text-white animate-bounce" />
+                  </div>
+                </div>
+
+                {/* Animated Audio Equalizer Bars */}
+                <div className="flex items-center gap-1.5 h-8">
+                  <div className="w-1 bg-cyan-400 rounded-full animate-pulse h-4" />
+                  <div className="w-1 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.2s] h-7" />
+                  <div className="w-1 bg-amber-400 rounded-full animate-pulse [animation-delay:-0.4s] h-5" />
+                  <div className="w-1 bg-cyan-300 rounded-full animate-bounce [animation-delay:-0.1s] h-8" />
+                  <div className="w-1 bg-violet-500 rounded-full animate-pulse [animation-delay:-0.3s] h-6" />
+                  <div className="w-1 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.5s] h-3" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-extrabold text-white tracking-wide">ESCUCHANDO TU VOZ...</p>
+                  <p className="text-[11px] text-slate-400 max-w-xs">
+                    Di algo como: <span className="text-cyan-300 font-medium">"Comprar comida para gatos"</span> o <span className="text-violet-300 font-medium">"Añadir tarea reunión mañana"</span>
+                  </p>
+                </div>
+
+                {voiceTranscript && (
+                  <div className="w-full p-3 rounded-xl bg-slate-900/90 border border-violet-500/30 text-center">
+                    <p className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Transcripción en vivo:</p>
+                    <p className="text-xs font-semibold text-cyan-300 mt-1 italic">"{voiceTranscript}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* State Visualizer: Recognized */}
+            {voiceState === 'recognized' && (
+              <div className="space-y-4 py-2">
+                <div className="p-3.5 rounded-xl bg-violet-950/40 border border-violet-500/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> COMANDO CAPTURADO
+                    </span>
+                    <span className="text-[10px] font-bold text-accent-gold">+10 XP</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={voiceParsedTitle}
+                    onChange={e => setVoiceParsedTitle(e.target.value)}
+                    placeholder="Título de la tarea"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-violet-500/50 text-white font-bold text-xs focus:outline-none focus:border-cyan-400"
+                  />
+                  <p className="text-[10px] text-slate-400 italic font-mono">"{voiceTranscript}"</p>
+                </div>
+
+                {/* Category Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase text-slate-400">CATEGORÍA:</label>
+                    <span className="text-[10px] text-slate-500">Toca para cambiar</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {categories.map(cat => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setVoiceParsedCategory(cat.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                          voiceParsedCategory === cat.id
+                            ? 'bg-violet-600 text-white border border-cyan-400 shadow-sm'
+                            : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cat.color }} />
+                        {cat.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Priority Selector */}
+                  <div className="pt-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">PRIORIDAD:</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 1, label: '🟢 Baja' },
+                        { id: 2, label: '🟡 Media' },
+                        { id: 3, label: '🔴 Alta' },
+                      ].map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setVoiceParsedPriority(p.id)}
+                          className={`py-1.5 rounded-lg text-[11px] font-bold border transition ${
+                            voiceParsedPriority === p.id
+                              ? 'bg-slate-800 border-cyan-400 text-white'
+                              : 'bg-slate-950 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Confirm Action Buttons */}
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startVoiceRecognition()}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 font-bold text-xs hover:bg-slate-800 transition active:scale-95 flex items-center justify-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Repetir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmVoiceTask}
+                    className="flex-[2] py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 text-white font-black text-xs hover:brightness-110 transition active:scale-95 shadow-lg shadow-cyan-950/50 flex items-center justify-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" /> CREAR TAREA
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* State Visualizer: Error or Cancelled */}
+            {voiceState === 'error' && (
+              <div className="py-4 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                  <MicOff className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-rose-300">No se capturó la voz</p>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                    {voiceErrorMessage || 'Verifica que hayas concedido permiso de micrófono o habla más cerca del dispositivo.'}
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setVoiceModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 font-bold text-xs"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startVoiceRecognition()}
+                    className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                  >
+                    <Mic className="w-3.5 h-3.5" /> Reintentar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
