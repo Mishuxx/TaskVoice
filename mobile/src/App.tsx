@@ -6,9 +6,16 @@ import {
   Trophy, Calendar, Clock, RefreshCw, Trash2, Tag, 
   Sparkles, Check, ChevronRight, BarChart3, Swords, 
   ListTodo, ChevronDown, Edit3, X, AlertCircle, Award,
-  Shield, Zap, Star, Radio
+  Shield, Zap, Star, Radio, Bell, BellOff
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { 
+  initNotifications, 
+  requestNotificationPermission, 
+  scheduleTaskReminder, 
+  cancelTaskReminder, 
+  sendTestNotification 
+} from './notifications';
 
 interface VoiceInputPluginType {
   isAvailable(): Promise<{ available: boolean }>;
@@ -126,6 +133,7 @@ export function App() {
   const [newTitle, setNewTitle] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [newSubtaskInputs, setNewSubtaskInputs] = useState<Record<number, string>>({});
+  const [notifEnabled, setNotifEnabled] = useState(false);
 
   // Tactical Voice Command Modal States
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
@@ -147,6 +155,11 @@ export function App() {
 
   useEffect(() => {
     loadAll();
+
+    // Check and initialize notification channel & permissions
+    initNotifications().then(active => {
+      setNotifEnabled(active);
+    });
 
     const channel = supabase
       .channel('bh_mobile_realtime')
@@ -172,7 +185,26 @@ export function App() {
       .select('*')
       .eq('is_deleted', false)
       .order('id', { ascending: false });
-    if (data) setTasks(data);
+    if (data) {
+      setTasks(data);
+      // Auto-schedule reminders for active tasks with due date
+      data.forEach(t => {
+        if (!t.completed && t.due_date) {
+          scheduleTaskReminder(t);
+        }
+      });
+    }
+  }
+
+  async function handleNotificationToggle() {
+    const granted = await requestNotificationPermission();
+    setNotifEnabled(granted);
+    if (granted) {
+      await sendTestNotification();
+      alert("✅ ¡Notificaciones activadas!\nSe ha enviado una alerta táctica de prueba a tu barra de notificaciones.");
+    } else {
+      alert("⚠️ Notificaciones bloqueadas en Android.\n\nPara desbloquearlas manualmente:\n1. Abre Ajustes o Configuración en tu teléfono.\n2. Ve a Aplicaciones > BountyHunter.\n3. Entra a 'Notificaciones' y activa el interruptor 'Permitir notificaciones'.");
+    }
   }
 
   async function loadSubtasks() {
@@ -239,6 +271,12 @@ export function App() {
       completed_at: nextCompleted ? now : null,
       updated_at: now
     }).eq('id', task.id);
+
+    if (nextCompleted) {
+      cancelTaskReminder(task.id);
+    } else if (task.due_date) {
+      scheduleTaskReminder({ ...task, completed: false });
+    }
   }
 
   // Toggle subtask
@@ -331,6 +369,9 @@ export function App() {
     }]).select().single();
 
     if (data) {
+      if (data.due_date) {
+        scheduleTaskReminder(data);
+      }
       setTasks(prev => [data, ...prev]);
       setModalOpen(false);
       setModalTitle('');
@@ -480,6 +521,7 @@ export function App() {
 
   // Delete task
   async function deleteTask(id: number) {
+    cancelTaskReminder(id);
     setTasks(prev => prev.filter(t => t.id !== id));
     await supabase.from('bh_tasks').update({ is_deleted: true, updated_at: new Date().toISOString() }).eq('id', id);
   }
@@ -552,13 +594,32 @@ export function App() {
           </div>
         </div>
 
-        <button 
-          onClick={loadAll} 
-          disabled={syncing}
-          className={`p-2.5 rounded-xl bg-bg-surface border border-border-subtle text-slate-300 hover:text-white transition active:scale-95 ${syncing ? 'animate-spin text-accent-violet' : ''}`}
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={handleNotificationToggle}
+            className={`p-2.5 rounded-xl bg-bg-surface border transition active:scale-95 ${
+              notifEnabled 
+                ? 'border-amber-500/40 text-accent-gold shadow-sm shadow-amber-950/40' 
+                : 'border-border-subtle text-slate-500'
+            }`}
+            title={notifEnabled ? 'Notificaciones activas (toca para probar)' : 'Notificaciones bloqueadas (toca para activar)'}
+          >
+            {notifEnabled ? (
+              <Bell className="w-4 h-4 text-accent-gold" />
+            ) : (
+              <BellOff className="w-4 h-4 text-rose-400" />
+            )}
+          </button>
+
+          <button 
+            onClick={loadAll} 
+            disabled={syncing}
+            className={`p-2.5 rounded-xl bg-bg-surface border border-border-subtle text-slate-300 hover:text-white transition active:scale-95 ${syncing ? 'animate-spin text-accent-violet' : ''}`}
+            title="Sincronizar ahora"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </header>
 
       {/* 2. LAYER NAVIGATION BAR (OPERACIONES / DASHBOARD / MISIONES) */}
@@ -871,6 +932,31 @@ export function App() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Tactical Notification Status Card */}
+          <div className="p-4 rounded-2xl bg-bg-surface border border-border-subtle flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className={`p-2.5 rounded-xl ${notifEnabled ? 'bg-amber-500/10 text-accent-gold border border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'}`}>
+                {notifEnabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
+              </div>
+              <div>
+                <p className="text-xs font-black text-white">Alertas & Recordatorios</p>
+                <p className="text-[11px] text-slate-400">
+                  {notifEnabled ? 'Activas (recibes avisos tácticos 15m antes)' : 'Bloqueadas por el sistema Android'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleNotificationToggle}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 ${
+                notifEnabled
+                  ? 'bg-slate-900 border border-border-subtle text-slate-300 hover:text-white'
+                  : 'bg-accent-violet text-white shadow-md shadow-purple-900/30'
+              }`}
+            >
+              {notifEnabled ? 'Probar' : 'Desbloquear'}
+            </button>
           </div>
         </div>
       )}
