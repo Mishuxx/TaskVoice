@@ -548,8 +548,7 @@ export function App() {
     return filteredTasks.filter(t => {
       if (t.completed) return false;
       const due = t.due_date;
-      const created = t.created_at || '';
-      return (due && (due.startsWith(todayStr) || due < todayStr)) || (!due && created.startsWith(todayStr));
+      return !due || due.startsWith(todayStr) || due < todayStr;
     });
   }, [filteredTasks, todayStr]);
 
@@ -557,8 +556,7 @@ export function App() {
     return filteredTasks.filter(t => {
       if (t.completed) return false;
       const due = t.due_date;
-      const created = t.created_at || '';
-      return !((due && (due.startsWith(todayStr) || due < todayStr)) || (!due && created.startsWith(todayStr)));
+      return !!(due && due > todayStr && !due.startsWith(todayStr));
     });
   }, [filteredTasks, todayStr]);
 

@@ -1426,9 +1426,14 @@ class MainWindow(QMainWindow):
             if target_num is not None:
                 if 1 <= target_num <= len(self._current_tasks):
                     task_to_delete = self._current_tasks[target_num - 1]
-                    self._db.delete_task(task_to_delete["id"])
+                    t_id = task_to_delete["id"]
+                    self._notifier.cancel_reminder(t_id)
+                    self._db.delete_task(t_id)
+                    if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                        self._sync_mgr.notify_task_deleted(t_id)
                     self._refresh_tasks()
                     self._refresh_categories_sidebar()
+                    self._refresh_gamification_hud()
                     self._voice_status_lbl.setText(
                         f'🗑 Tarea #{target_num} eliminada: "{task_to_delete["title"]}"'
                     )
@@ -1439,10 +1444,16 @@ class MainWindow(QMainWindow):
             else:
                 tasks = self._db.get_all_tasks(search=title)
                 if tasks:
-                    self._db.delete_task(tasks[0]["id"])
+                    t_id = tasks[0]["id"]
+                    t_title = tasks[0]["title"]
+                    self._notifier.cancel_reminder(t_id)
+                    self._db.delete_task(t_id)
+                    if hasattr(self, "_sync_mgr") and self._sync_mgr:
+                        self._sync_mgr.notify_task_deleted(t_id)
                     self._refresh_tasks()
                     self._refresh_categories_sidebar()
-                    self._voice_status_lbl.setText(f'🗑 Eliminada: "{tasks[0]["title"]}"')
+                    self._refresh_gamification_hud()
+                    self._voice_status_lbl.setText(f'🗑 Eliminada: "{t_title}"')
                 else:
                     self._voice_status_lbl.setText(f'⚠ No se encontró la tarea: "{title}"')
 
@@ -1635,8 +1646,9 @@ class MainWindow(QMainWindow):
             today_str = date.today().isoformat()
             tasks = [
                 t for t in tasks
-                if (t.get("due_date") and t["due_date"].startswith(today_str))
-                or (not t.get("due_date") and t.get("created_at", "").startswith(today_str))
+                if not t.get("due_date")
+                or t["due_date"].startswith(today_str)
+                or t["due_date"] < today_str
             ]
 
         # Clear existing task widgets
@@ -1659,8 +1671,7 @@ class MainWindow(QMainWindow):
 
         for t in tasks:
             due = t.get("due_date")
-            created = t.get("created_at", "")
-            if (due and (due.startswith(today_str) or due < today_str)) or (not due and created.startswith(today_str)):
+            if not due or due.startswith(today_str) or due < today_str:
                 today_list.append(t)
             else:
                 upcoming_list.append(t)
